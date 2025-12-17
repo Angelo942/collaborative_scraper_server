@@ -35,10 +35,12 @@ app = Flask(__name__)
 CORS(app)  # allow cross-origin requests from extension
 VALID_SESSION_ID = None
 
-
 _temp_dir = tempfile.TemporaryDirectory(prefix=f"{APP_NAME}-")
 SNAPSHOT_DIR = Path(_temp_dir.name) / "snapshots"
 SNAPSHOT_DIR.mkdir(exist_ok=True)
+
+# prevent DoS with limit on number of elements and dropping old requests if you want
+current_requests = {}
 
 # scraper = SeedScraper(44949177276, 34547969777, db=db)
 # scraper = Scraper(db=db)
@@ -94,6 +96,17 @@ def save_snapshot(payload):
         print(f"[SNAPSHOT] Error saving HTML snapshot: {e}")
         raise e
 
+def delete_file(path):
+    try:
+        abs_path = os.path.abspath(path)
+        if abs_path.startswith(SNAPSHOT_DIR):
+            os.remove(abs_path)
+            # print(f"[CLEANUP] Deleted snapshot {abs_path}")
+        else:
+            print(f"[CLEANUP] Skipped deletion (outside SNAPSHOT_DIR): {abs_path}")
+    except Exception as e:
+        print(f"[CLEANUP] Could not delete {path}: {e}")
+
 def extract_articles(payload, path):
     meta = payload.get("meta", {})
     domain = meta.get("domain", "unknown")
@@ -114,93 +127,84 @@ def extract_articles(payload, path):
 
     return articles
 
-def delete_file(path):
-    try:
-        abs_path = os.path.abspath(path)
-        if abs_path.startswith(SNAPSHOT_DIR):
-            os.remove(abs_path)
-            # print(f"[CLEANUP] Deleted snapshot {abs_path}")
-        else:
-            print(f"[CLEANUP] Skipped deletion (outside SNAPSHOT_DIR): {abs_path}")
-    except Exception as e:
-        print(f"[CLEANUP] Could not delete {path}: {e}")
-
 @app.route("/receive", methods=["POST"])
 def receive():
-    global VALID_SESSION_ID, next_page
     instructions = []
+
     payload = request.get_json(force=True)
     token = payload.get("token")
-
-    if VALID_SESSION_ID is None:
-        # First valid request → issue a unique cookie
-        VALID_SESSION_ID = secrets.token_hex(16)
-        print(f"[SECURITY] Issued new session cookie: {VALID_SESSION_ID}")
-        instructions += [
-            {"type": "set_token", "token": VALID_SESSION_ID}
-        ]
     
-    # elif token != VALID_SESSION_ID:
-    #     print(f"[SECURITY] Invalid or missing cookie {token}, ignoring")
-    #     return jsonify({"status": "ignored", "reason": "invalid cookie"}), 403
-
-    meta = payload.get("meta", {})
-    domain = meta.get("domain", "unknown")
-
-    path = save_snapshot(payload) # I could use a with ... to make sure the file is deleted immediately even in case of crash, but it's nice to debug if I can still read them.
-
+    path = save_snapshot(payload) # I could use a `with ... as` to make sure the file is deleted immediately even in case of crash, but it's nice to debug if I can still read them.
     articles = extract_articles(payload, path)
 
-    if articles is not None:
-        # Reset data when corrupted
-        if scraper.current_article is not None:
-            assert len(scraper.current_article.citing) <= scraper.current_article.num_citing
+    if token in current_requests: # if None should still return False
+        next_page, requested_article, request_type = current_requests[token] # Keep old page in case page is corrupted
+    
+        if articles is None: # Corrupted page -> request again
+            return jsonify({"status": "ok", "instructions": [{"type": "redirect", "url": next_page}]})
+
+        del current_requests[token]
 
         for article in articles:
             # Should we save in the scraper since that's where we update it ?
             # if article.id not in scraper.known_articles: # TODO Check that num_citing hasn't change
             #     db.save_page(article)    
             scraper.update(article)
-            if scraper.state == "CITING" and article.id not in scraper.current_article.citing: 
-                scraper.current_article.citing.append(article.id)
-            elif scraper.state == "CITED" and article.id not in scraper.current_article.cited:
-                scraper.current_article.cited.append(article.id)
+            if request_type == "CITING" and article.id not in requested_article.citing: 
+                requested_article.citing.append(article.id)
+            elif request_type == "CITED" and article.id not in requested_article.cited:
+                requested_article.cited.append(article.id)
 
-        if scraper.current_article is not None and scraper.state == "CITING":
-            # assert len(scraper.current_article.citing) - scraper.current_article.num_citing < 5 or len(scraper.current_article.citing) % 200 < 5, scraper.current_article # This break when we have an update
-            if len(scraper.current_article.citing) > scraper.current_article.num_citing:
-                scraper.current_article.num_citing = len(scraper.current_article.citing)
-            db.update_page(scraper.current_article)
-        if scraper.current_article is not None and scraper.state == "CITED": # TODO continue if there are multiple pages. For now I trust the scraper to continue
+        if request_type == "CITING":
+            # assert len(requested_article.citing) - requested_article.num_citing < 5 or len(requested_article.citing) % 200 < 5, requested_article # This break when we have an update
+            if len(requested_article.citing) > requested_article.num_citing:
+                requested_article.num_citing = len(requested_article.citing)
+            db.update_page(requested_article)
+        if request_type == "CITED": # TODO continue if there are multiple pages. For now I trust the scraper to continue
             # Make it try again instead of dying 
-            # if len(scraper.current_article.cited) == 0:
+            # if len(requested_article.cited) == 0:
             #     print("ERROR LOADING PAGE")
-            #     scraper.update(scraper.current_article) # Repeat if you missed a page
+            #     scraper.update(requested_article) # Repeat if you missed a page
             # else:
-            scraper.current_article.num_cited = len(scraper.current_article.cited)
-            scraper.current_article.explored = True
-            db.update_page(scraper.current_article)
-        if scraper.current_article is not None and article.id not in scraper.known_articles:
+            requested_article.num_cited = len(requested_article.cited)
+            requested_article.explored = True
+            db.update_page(requested_article)
+        if article.id not in scraper.known_articles:
             db.save_page(article)
 
-        delete_file(path)
-        next_page = scraper.next_target
+    else:
+        if articles is not None:
+            for article in articles:
+                scraper.update(article)
+                db.update_page(article)
 
-    """
-    instructions = [
-        {
-            "type": "insert_html",
-            "selector": "body",
-            "position": "afterbegin",
-            "html": (
-                "<div id='server-banner' "
-                "style='position:fixed;left:0;right:0;top:0;background:#fffae6;"
-                "padding:8px;border-bottom:1px solid #e6db9a;z-index:99999;'>"
-                f"Local server processed this page at {datetime.utcnow().isoformat()} UTC</div>"
-            )
-        }
-    ]
-    """
+    delete_file(path)
+
+    next_page = scraper.next_target # Will update the state and current article 
+    # TODO handle job done
+    # if next_page is None:
+    #     instructions = +[
+    #         {
+    #             "type": "insert_html",
+    #             "selector": "body",
+    #             "position": "afterbegin",
+    #             "html": (
+    #                 "<div id='server-banner' "
+    #                 "style='position:fixed;left:0;right:0;top:0;background:#fffae6;"
+    #                 "padding:8px;border-bottom:1px solid #e6db9a;z-index:99999;'>"
+    #                 "Thank you, but no pages are needed at the moment</div>"
+    #             )
+    #         }
+    #     ]
+    #     return jsonify({"status": "ok", "instructions": instructions})
+    requested_article = scraper.current_article
+    request_type = scraper.state # Looking for citations or references
+    request_token = secrets.token_hex(8)
+    current_requests[request_token] = (next_page, requested_article, request_type)
+
+    instructions += [
+            {"type": "set_token", "token": request_token}
+        ]
 
     instructions += [
         {
@@ -209,10 +213,11 @@ def receive():
         }
     ]
 
-    if scraper.save_zotero:
-        instruction += {
-            "type": "zotero_save"
-        }
+    # Not implemented yet
+    # if scraper.save_zotero:
+    #     instruction += {
+    #         "type": "zotero_save"
+    #     }
 
     return jsonify({"status": "ok", "instructions": instructions})
 
