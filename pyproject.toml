@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collaborative_webcrawler_server"
+version = "0.1.0"
+description = "Server to coordinate distributed webcrawling"
+requires-python = ">=3.10"
+authors = [
+  { name="Edoardo"}
+]
+dependencies = [
+"Flask",
+"flask-cors",
+"lxml"
+]
+
+[project.scripts]
+collaborative_webcrawler_server = "collaborative_webcrawler_server.server:main
