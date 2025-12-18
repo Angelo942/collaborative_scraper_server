@@ -1,4 +1,7 @@
 from collaborative_webcrawler_server.parse_html.base import *
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Scopus_Article(Article):
     def __init__(self, *args, **kwargs):
@@ -35,6 +38,7 @@ def extract_articles(path):
     try:
         num_articles = formatted_int(page.xpath("/html/body/div[1]/div/div[1]/div/div/div[3]/micro-ui/document-search-results-page/div[1]/section[1]/div[3]/div/div/div[1]/h2")[0].text_content().split()[0])
     except IndexError:
+        logger.error("IndexError -> Page didn't load")
         return None # this mean that the page didn't load properly
 
     num_articles -= (num_articles // 200) * 200

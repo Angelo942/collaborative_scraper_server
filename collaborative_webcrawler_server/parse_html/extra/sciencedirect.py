@@ -19,8 +19,11 @@ class Sciencedirect_Article(Article):
 
         self.num_cited = len(node.xpath("//*[@id='reference-links-aep-bibliography-sec-id71']/li"))
 
-def extract_article_info(path):
-    page = load_page(path)
+def extract_article_info(html_page):
+    page = load_page(html_page)
     article = Sciencedirect_Article()
     article.load_from_page(page)
     return article
+
+def extract_articles(html_page):
+    return [extract_article_info(html_page)]

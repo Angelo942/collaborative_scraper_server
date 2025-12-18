@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "collaborative_webcrawler_server"
-version = "0.1.0"
+version = "0.2.0"
 description = "Server to coordinate distributed webcrawling"
 requires-python = ">=3.10"
 authors = [
