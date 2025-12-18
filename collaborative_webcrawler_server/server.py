@@ -22,6 +22,7 @@ logging.basicConfig(
     format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)  # allow cross-origin requests from extension
@@ -38,6 +39,7 @@ def receive():
 
     payload = request.get_json(force=True)
     token = payload.get("token")
+    can_redirect = payload.get("allow_redirect", True)
     articles = extract_articles(payload)
     
     if token in current_requests: # if token is None should still return False
@@ -57,38 +59,41 @@ def receive():
                 scraper.update(article)
                 db.update_page(article)
 
-    next_page, request_data = scraper.next_target() # Will update the state and current article 
-    # TODO handle job done
-    if next_page is None:
+    if can_redirect:
+        next_page, request_data = scraper.next_target() # Will update the state and current article 
+        # TODO handle job done
+        if next_page is None:
+            instructions += [
+                {
+                    "type": "insert_html",
+                    "selector": "body",
+                    "position": "afterbegin",
+                    "html": (
+                        "<div id='server-banner' "
+                        "style='position:fixed;left:0;right:0;top:0;background:#fffae6;"
+                        "padding:8px;border-bottom:1px solid #e6db9a;z-index:99999;'>"
+                        "Thank you, but no pages are needed at the moment</div>"
+                    )
+                }
+            ]
+            return jsonify({"status": "ok", "instructions": instructions})
+
+        request_token = secrets.token_hex(8)
+        current_requests[request_token] = request_data
+        print(f"[ASSIGNMENT] {request_token} -> {next_page}")
+
+        instructions += [
+                {"type": "set_token", "token": request_token}
+            ]
+
         instructions += [
             {
-                "type": "insert_html",
-                "selector": "body",
-                "position": "afterbegin",
-                "html": (
-                    "<div id='server-banner' "
-                    "style='position:fixed;left:0;right:0;top:0;background:#fffae6;"
-                    "padding:8px;border-bottom:1px solid #e6db9a;z-index:99999;'>"
-                    "Thank you, but no pages are needed at the moment</div>"
-                )
+                "type": "redirect",
+                "url": next_page
             }
         ]
-        return jsonify({"status": "ok", "instructions": instructions})
-
-    request_token = secrets.token_hex(8)
-    current_requests[request_token] = request_data
-    print(f"[ASSIGNMENT] {request_token} -> {next_page}")
-
-    instructions += [
-            {"type": "set_token", "token": request_token}
-        ]
-
-    instructions += [
-        {
-            "type": "redirect",
-            "url": next_page
-        }
-    ]
+    else:
+        logger.debug("User doesn't want to redirect")
 
     # Not implemented yet
     # if scraper.save_zotero:
