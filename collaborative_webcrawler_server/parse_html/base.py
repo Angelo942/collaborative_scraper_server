@@ -41,6 +41,14 @@ class Article:
     #       logger.warning("%s contains corrupted info!", self)
     #     return len(cited) == self.num_cited and len(citing) == self.num_citing and self.num_cited != 0
 
+    @property
+    def explored(self):
+        return self._explored
+
+    @explored.setter
+    def explored(self, value:bool):
+        self._explored = value
+
     def __gt__(self, article):
         """ Define a metric of priority between two articles to parse """
         return self.num_citing > article.num_citing
