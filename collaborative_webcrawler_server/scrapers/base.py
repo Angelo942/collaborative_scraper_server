@@ -54,8 +54,12 @@ class BaseScraper:
             elif fetch_phase == "CITED" and article.id not in requested_article.cited:
                 requested_article.cited.append(article.id)
 
-    def clear_references(self):
-        for article in self.known_articles.values():
+    def clear_references(self, article=None):
+        if article is None:
+            articles_to_clean = self.known_articles.values()
+        else:
+            articles_to_clean = [article]
+        for article in articles_to_clean:
             for article_id in article.citing:
                 if article_id not in self.known_articles:
                     article.citing = []
@@ -104,12 +108,22 @@ class BaseScraper:
             if (self.fetch_phase == "CITING" and len(self.current_article.citing) == min(self.current_article.num_citing, 2000)): # There is a limit to 2000 papers on scopus
                 logger.info(f"skipping papers citing {self.current_article}")
                 for id in self.current_article.citing:
-                    self.update(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article}) # Careful to not change the state before calling update
+                    if id not in self.known_articles:
+                        logger.error("articles got corrupted: clearing unknown articles")
+                        self.clear_references(self.current_article)
+                        break
+                    else:
+                        self._update_impl(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article}) # Careful to not change the state before calling update
                 self.fetch_phase = "SKIPPING"
             elif (self.fetch_phase == "CITED" and len(self.current_article.cited) == self.current_article.num_cited) and (self.current_article.num_cited % 200 != 0 or self.current_article.num_cited == 0): # Skip the ones we know are 0
                 logger.info(f"skipping papers cited by {self.current_article}")
                 for id in self.current_article.cited:
-                    self.update(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article})
+                    if id not in self.known_articles:
+                        logger.error("articles got corrupted: clearing unknown articles")
+                        self.clear_references(self.current_article)
+                        break
+                    else:
+                        self._update_impl(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article})
             else:
                 break
 
