@@ -29,18 +29,9 @@ class Article:
         self.cited  = json.loads(cited)  if isinstance(cited, str)  else ([] if cited  is None else cited)
         self._explored = explored
     
-    def load_from_page(self, node:html.HtmlElement) -> None:
+    def load_from_page(self, node:html.HtmlElement) -> bool:
         """ Extract the paper details from an html page """
         raise NotImplemented
-
-    # This doesn't work unfortunately because on scopus we don't know immediately how many papers cited a given paper
-    # @property
-    # def explored(self):
-    #     """ Did we download have all the informations about this article ? """
-    #     if len(citing) > self.num_citing or (len(cited) > self.num_cited and not self.num_cited == 0):
-    #       # this is wrong because we are gonna update the lists at each paper, but correct the number of articles only at the end of the process  
-    #       logger.warning("%s contains corrupted info!", self)
-    #     return len(cited) == self.num_cited and len(citing) == self.num_citing and self.num_cited != 0
 
     @property
     def explored(self) -> bool:
@@ -59,7 +50,7 @@ class Article:
 
 
 
-def extract_articles(html_page: str) -> str:
+def extract_articles(html_page: str, path: str) -> list[Article] | None:
     raise NotImplemented
 
 def get_papers_citing(article: Article) -> str:

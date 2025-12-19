@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 from collaborative_scraper.parse_html.base import Article
 from collaborative_scraper.parse_html.extra.scopus import extract_articles as extract_articles_from_scopus
 from collaborative_scraper.parse_html.extra.webofscience import extract_articles as extract_articles_from_webofscience
@@ -16,8 +17,10 @@ def extract_articles(payload: dict) -> list[Article]:
     """ Must return None if the page was not fully loaded """
     meta = payload.get("meta", {})
     html_page = payload.get("html", "")
-    domain = meta.get("domain", "unknown")
+    url = meta.get("url", "")
+    parsed = urlparse(url)
+    domain = parsed.netloc
     parser_function = supported_domains[domain]
-    articles = parser_function(html_page)
+    articles = parser_function(html_page, parsed.path)
     logger.debug(f"[PARSE] Extracted %d article(s) from %s", len(articles), meta.get('url'))
     return articles

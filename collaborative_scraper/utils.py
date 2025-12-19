@@ -26,7 +26,7 @@ def find_database() -> str:
         config_file.write_text(json.dumps(config))
     return data_dir / db_name
 
-def save_snapshot(payload, SNAPSHOT_DIR) -> None:
+def save_snapshot(payload: dict, SNAPSHOT_DIR: Path) -> None:
     # Save snapshot to disk for inspection
     html = payload.get("html", "")
     meta = payload.get("meta", {})
@@ -42,7 +42,7 @@ def save_snapshot(payload, SNAPSHOT_DIR) -> None:
         print(f"[SNAPSHOT] Error saving HTML snapshot: {e}")
         raise e
 
-def delete_snapshot(path, SNAPSHOT_DIR) -> None:
+def delete_snapshot(path: Path, SNAPSHOT_DIR: Path) -> None:
     try:
         if  path.parent == SNAPSHOT_DIR:
             os.remove(path)

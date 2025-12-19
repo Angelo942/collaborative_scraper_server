@@ -4,7 +4,7 @@ class Webofscience_Article(Article):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs) 
    
-    def load_from_page(self, node: html.HtmlElement) -> None:
+    def load_from_page(self, node: html.HtmlElement) -> bool:
         title = node.xpath("div/div/div[2]/div[2]/app-summary-title/h3/a")[0]
         self.title = title.text_content()
         self.link = "https://www.webofscience.com" + title.attrib["href"]
@@ -27,7 +27,9 @@ class Webofscience_Article(Article):
                 self.num_citing = 0
             self.num_cited = 0
 
-def extract_articles(html_page: str) -> list[Article]:
+        return True
+
+def extract_articles(html_page: str, path: str) -> list[Article] | None:
     articles = []
     page = load_page(html_page)
     for i, element in enumerate(page.xpath("/html/body/app-wos/main/div/div/div[2]/div/div/div[2]/app-input-route/app-base-summary-component/div/div[2]/app-records-list/app-record")):

@@ -1,5 +1,7 @@
 from collaborative_scraper.parse_html.base import *
 import logging
+import re
+from collaborative_scraper.utils import save_snapshot, Path
 
 logger = logging.getLogger(__name__)
 
@@ -7,7 +9,7 @@ class ScopusArticle(Article):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def load_from_page(self, node: html.HtmlElement) -> None:
+    def load_from_result_page(self, node: html.HtmlElement) -> bool:
         try:
             title = node.xpath("td[2]/div/div/h3/a")[0]
         except IndexError:
@@ -25,8 +27,51 @@ class ScopusArticle(Article):
             self.num_citing = 0
         self.num_cited = -1
         return True
+    
+    def load_from_article_page(self, page: html.HtmlElement) -> bool:
+        tile_section = page.xpath("/html/body/div/div/main/div/section/article/div[1]/div[3]/div[1]/h2/span")[0]
+        self.title = tile_section.text_content()
 
-def extract_articles(html_page: str) -> list[Article]:
+        # id already set by the caller
+
+        # header_section = page.xpath("/html/body/div/div/main/div/section/article/div[1]/div[3]/div[2]/div/div")[0]
+        # header_text = header_section.text_content()
+        doi_section = page.xpath("/html/body/div/div/main/div/section/article/div[1]/div[3]/div[2]/div/div/div/span")[0]
+        doi_string = doi_section.text_content()
+        #'DOI: 10.1080/0951192X.2016.1268269'
+        assert doi_string.startswith("DOI: ")
+        self.doi = re.search(r'DOI: (\S+)', doi_string, re.IGNORECASE).group(1)
+        # self.doi = re.search(r'DOI: (\S+)Copy', header_text, re.IGNORECASE).group(1)
+        self.link = "doi.org/" + self.doi
+
+        year_section = page.xpath("/html/body/div/div/main/div/section/article/div[1]/div[3]/div[2]/div/div/span[2]")[0]
+        self.year = int(year_section.text_content())
+        
+        # self.year = int(re.search(r'(\d{4})', header_text, re.IGNORECASE).group(1))
+        # self.year = int(re.search(r'([12]\d{3})', header_text, re.IGNORECASE).group(1))
+        # self.year = int(re.search(r'((?:19|20)\d{2})', header_text, re.IGNORECASE).group(1))
+
+        citing_section = page.xpath("/html/body/div/div/main/div/section/article/div[2]/div/div/div[1]/button[3]/span")[0]
+        citing_string = citing_section.text_content()
+        self.num_citing = re.search(r'\((\S+)\)', citing_string, re.IGNORECASE).group(1)
+
+        cited_section = page.xpath("/html/body/div/div/main/div/section/article/div[2]/div/div/div[1]/button[4]/span")[0]
+        cited_string = cited_section.text_content()
+        self.num_cited = re.search(r'\((\S+)\)', cited_string, re.IGNORECASE).group(1)
+
+    # TODO handle explored in the scrapers
+    # This doesn't work unfortunately because on scopus we don't know immediately how many papers cited a given paper
+    # @property
+    # def explored(self):
+    #     """ Did we download have all the informations about this article ? """
+    #     if not self._explored:
+    #         if len(self.citing) > self.num_citing or (len(self.cited) > self.num_cited and not self.num_cited == 0):
+    #         # this is wrong because we are gonna update the lists at each paper, but correct the number of articles only at the end of the process  
+    #             logger.warning("%s contains corrupted info!", self)
+    #         self._explored = len(self.cited) == self.num_cited and len(self.citing) == self.num_citing and self.num_cited % 200 != 0: # I accept that if I have exactly 200 papers I won't detect that we finished exploring it
+    #     return self._explored
+
+def extract_articles_from_results(html_page: str) -> list[Article] | None:
     page = load_page(html_page)
     articles = []
 
@@ -52,7 +97,7 @@ def extract_articles(html_page: str) -> list[Article]:
         article = ScopusArticle()
         # print(element.text_content())
         # Sometimes we have an empty line out of nowhere...
-        if not article.load_from_page(element):
+        if not article.load_from_result_page(element):
             print(f"skipping line {element.text_content()}")
             i += 1
             continue
@@ -64,6 +109,22 @@ def extract_articles(html_page: str) -> list[Article]:
     if len(articles) not in [num_articles, 200]:
         raise Exception("Missing articles -> Make sure to set max number per page.")
     return articles
+
+def extract_article_info_from_page(html_page: str, path: str) -> Article:
+    page = load_page(html_page)
+    id = int(path.split("/")[-1])
+    article = ScopusArticle(id=id)
+    article.load_from_article_page(page)
+    return article
+
+def extract_articles(html_page: str, path: str) -> list[Article]:
+    if path.startswith("/results"):
+        return extract_articles_from_results(html_page)
+    elif path.startswith("/pages"):
+        return [extract_article_info_from_page(html_page, path)]
+    else:
+        logger.warning("page %s is not handled on scopus!", path)
+        return []
 
 def get_papers_citing(article: Article, offset: int = 0) -> str: # the settings are not respected, so careful
     if offset:
