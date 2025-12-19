@@ -10,7 +10,7 @@ class Sciencedirect_Article(Article):
 
         self.link = node.xpath("//*[@id='article-identifier-links']/a/span/span")[0].text_content()
         scopus_link = node.xpath("//*[@id='citing-articles-view-all-btn']")[0].attrib["href"]
-        self.id = scopus_link.split("s2.0-")[-1].split("&")[0]
+        self.id = int(scopus_link.split("s2.0-")[-1].split("&")[0])
         
         self.year = int(title.xpath("div/span")[0].text_content().split()[0])
 
