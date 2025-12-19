@@ -1,10 +1,10 @@
-from collaborative_webcrawler_server.parse_html.base import *
+from collaborative_scraper.parse_html.base import *
 
 class Webofscience_Article(Article):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs) 
    
-    def load_from_page(self, node):
+    def load_from_page(self, node: html.HtmlElement) -> None:
         title = node.xpath("div/div/div[2]/div[2]/app-summary-title/h3/a")[0]
         self.title = title.text_content()
         self.link = "https://www.webofscience.com" + title.attrib["href"]
@@ -27,9 +27,9 @@ class Webofscience_Article(Article):
                 self.num_citing = 0
             self.num_cited = 0
 
-def extract_articles(path):
+def extract_articles(html_page: str) -> list[Article]:
     articles = []
-    page = load_page(path)
+    page = load_page(html_page)
     for i, element in enumerate(page.xpath("/html/body/app-wos/main/div/div/div[2]/div/div/div[2]/app-input-route/app-base-summary-component/div/div[2]/app-records-list/app-record")):
         # print(i)
         article = Article()
@@ -42,8 +42,8 @@ def extract_articles(path):
             pass
     return articles
 
-def get_papers_citing(article):
+def get_papers_citing(article: Article) -> str:
     return f"https://www.webofscience.com/wos/woscc/citing-summary/WOS:{article.id}?from=woscc&type=colluid&eventMode=timeCitedOnSummary"
 
-def get_papers_cited(article):
+def get_papers_cited(article: Article) -> str:
     return f"https://www.webofscience.com/wos/woscc/cited-references-summary/WOS:{article.id}?type=colluid&from=woscc"

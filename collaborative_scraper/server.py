@@ -7,10 +7,10 @@ import secrets
 import tempfile
 from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
-from collaborative_webcrawler_server.db import Database
-from collaborative_webcrawler_server.parse_html.parser import extract_articles
-from collaborative_webcrawler_server.utils import find_database, save_snapshot, delete_snapshot
-from collaborative_webcrawler_server.scrapers.scraper import generate_scraper
+from collaborative_scraper.db import Database
+from collaborative_scraper.parse_html.parser import extract_articles
+from collaborative_scraper.utils import find_database, save_snapshot, delete_snapshot
+from collaborative_scraper.scrapers.scraper import generate_scraper
 import logging
 import os
 

@@ -1,10 +1,10 @@
-from collaborative_webcrawler_server.parse_html.base import *
+from collaborative_scraper.parse_html.base import *
 
 class Sciencedirect_Article(Article):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     
-    def load_from_page(self, node):
+    def load_from_page(self, node: html.HtmlElement) -> None:
         title = node.xpath("//*[@id='screen-reader-main-title']")[0]
         self.title = title.xpath("span")[0].text_content()
 
@@ -19,11 +19,11 @@ class Sciencedirect_Article(Article):
 
         self.num_cited = len(node.xpath("//*[@id='reference-links-aep-bibliography-sec-id71']/li"))
 
-def extract_article_info(html_page):
+def extract_article_info(html_page: str) -> Article:
     page = load_page(html_page)
     article = Sciencedirect_Article()
     article.load_from_page(page)
     return article
 
-def extract_articles(html_page):
+def extract_articles(html_page: str) -> list[Article]:
     return [extract_article_info(html_page)]

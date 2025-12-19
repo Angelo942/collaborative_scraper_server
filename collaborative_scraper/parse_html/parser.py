@@ -1,7 +1,8 @@
 import logging
-from collaborative_webcrawler_server.parse_html.extra.scopus import extract_articles as extract_articles_from_scopus
-from collaborative_webcrawler_server.parse_html.extra.webofscience import extract_articles as extract_articles_from_webofscience
-from collaborative_webcrawler_server.parse_html.extra.sciencedirect import extract_articles as extract_article_info_from_sciencedirect
+from collaborative_scraper.parse_html.base import Article
+from collaborative_scraper.parse_html.extra.scopus import extract_articles as extract_articles_from_scopus
+from collaborative_scraper.parse_html.extra.webofscience import extract_articles as extract_articles_from_webofscience
+from collaborative_scraper.parse_html.extra.sciencedirect import extract_articles as extract_article_info_from_sciencedirect
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ supported_domains = {
     "www.scopus.com": extract_articles_from_scopus
 }
 
-def extract_articles(payload):
+def extract_articles(payload: dict) -> list[Article]:
     """ Must return None if the page was not fully loaded """
     meta = payload.get("meta", {})
     html_page = payload.get("html", "")

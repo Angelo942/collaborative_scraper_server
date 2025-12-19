@@ -1,10 +1,11 @@
-from collaborative_webcrawler_server.scrapers.base import BaseScraper
-from collaborative_webcrawler_server.parse_html.extra.scopus import get_papers_citing, get_papers_cited, get_papers_from_keyword
+from collections.abc import Callable
+from collaborative_scraper.scrapers.base import BaseScraper, RequestData, Phase
+from collaborative_scraper.parse_html.extra.scopus import ScopusArticle as Article, get_papers_citing, get_papers_cited, get_papers_from_keyword
 import logging
 
 logger = logging.getLogger(__name__)
 
-def blacklist(article):
+def blacklist(article: Article):
     BLACKLIST = [
         "chat",
         "digital",
@@ -91,26 +92,27 @@ def blacklist(article):
     return False
 
 class ScopusScraper(BaseScraper):
-    def __init__(self, *args, blacklist = blacklist, **kwargs):
+    def __init__(self, *args, blacklist: Callable[[Article], bool] = blacklist, **kwargs):
         super().__init__(*args, blacklist = blacklist, **kwargs)
 
-    def _update_impl(self, article, request_data):
+    def _update_impl(self, article: Article, request_data: RequestData) -> None:
         """Hook for subclasses to extend update behaviour."""
-        fetch_phase = request_data.get("fetch_phase")
-        if fetch_phase == "CITING" or article.num_citing < 100: # Don't follow cited papers that are too popular
+        if request_data is None:
+            return
+        if request_data.fetch_phase == Phase.CITING or article.num_citing < 100: # Don't follow cited papers that are too popular
             if article not in self.candidate_queue and article.id not in self.explored:
                 self.explored.add(article.id)
                 self.candidate_queue.append(article)
             
-    def _fetch_related_papers(self, current_article):
-        self.fetch_phase = "CITING"
+    def _fetch_related_papers(self, current_article: Article) -> str:
+        self.fetch_phase = Phase.CITING
         for i in range(current_article.num_citing // 200 + 1):
             yield get_papers_citing(current_article, i*200)
-            if self.fetch_phase == "SKIPPING":
+            if self.fetch_phase == Phase.SKIPPING:
                 break
             
         # This can not work in parallel
-        self.fetch_phase = "CITED"
+        self.fetch_phase = Phase.CITED
         self.old_cited_len = -1
         yield get_papers_cited(current_article)
         while len(current_article.cited) % 200 == 0:
@@ -120,10 +122,10 @@ class ScopusScraper(BaseScraper):
                 break
             self.old_cited_len = len(current_article.cited)
 
-    def next_target(self):
+    def next_target(self) -> tuple[str, RequestData]:
         while True:
             next_url = next(self.request_stream)
-            if (self.fetch_phase == "CITING" and len(self.current_article.citing) == min(self.current_article.num_citing, 2000)): # There is a limit to 2000 papers on scopus
+            if (self.fetch_phase == Phase.CITING and len(self.current_article.citing) == min(self.current_article.num_citing, 2000)): # There is a limit to 2000 papers on scopus
                 logger.info(f"skipping papers citing {self.current_article}")
                 for id in self.current_article.citing:
                     if id not in self.known_articles:
@@ -131,9 +133,9 @@ class ScopusScraper(BaseScraper):
                         self.clear_references(self.current_article)
                         break
                     else:
-                        self._update_impl(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article}) # Careful to not change the state before calling update
-                self.fetch_phase = "SKIPPING"
-            elif (self.fetch_phase == "CITED" and len(self.current_article.cited) == self.current_article.num_cited) and (self.current_article.num_cited % 200 != 0 or self.current_article.num_cited == 0): # Skip the ones we know are 0
+                        self._update_impl(self.known_articles[id], RequestData(self.current_article, self.fetch_phase)) # Careful to not change the state before calling update
+                self.fetch_phase = Phase.SKIPPING
+            elif (self.fetch_phase == Phase.CITED and len(self.current_article.cited) == self.current_article.num_cited) and (self.current_article.num_cited % 200 != 0 or self.current_article.num_cited == 0): # Skip the ones we know are 0
                 logger.info(f"skipping papers cited by {self.current_article}")
                 for id in self.current_article.cited:
                     if id not in self.known_articles:
@@ -141,10 +143,10 @@ class ScopusScraper(BaseScraper):
                         self.clear_references(self.current_article)
                         break
                     else:
-                        self._update_impl(self.known_articles[id], {"fetch_phase": self.fetch_phase, "requested_article": self.current_article})
+                        self._update_impl(self.known_articles[id], RequestData(self.current_article, self.fetch_phase))
             else:
                 break
 
         logger.debug(f"[{len(self.candidate_queue)}] exploring {self.fetch_phase} {self.current_article}")
-        request_data = {"fetch_phase": self.fetch_phase, "requested_article": self.current_article}
+        request_data = RequestData(self.current_article, self.fetch_phase)
         return next_url, request_data

@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from collaborative_webcrawler_server.parse_html.base import Article
+from collaborative_scraper.parse_html.base import Article
 from collections import Counter
 
 class Database:
@@ -8,10 +8,10 @@ class Database:
         self.db_path = db_path
         self._init_db()
 
-    def _connect(self):
+    def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """Create tables if they don't exist"""
         conn = self._connect()
         cur = conn.cursor()
@@ -44,7 +44,7 @@ class Database:
         conn.close()
 
     # --- Database helper functions ---
-    def save_page(self, article: Article):
+    def save_page(self, article: Article) -> None:
         conn = self._connect()
         cur = conn.cursor()
         try:
@@ -68,7 +68,7 @@ class Database:
         finally:
             conn.close()
 
-    def update_page(self, article: Article):
+    def update_page(self, article: Article) -> None:
         conn = self._connect()
         cur = conn.cursor()
         try:
@@ -93,7 +93,7 @@ class Database:
         finally:
             conn.close()
 
-    def get_articles(self):
+    def get_articles(self) -> list[Article]:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT id, title, year, pdf, num_citing, num_cited, citing, cited, explored FROM pages")
@@ -101,7 +101,7 @@ class Database:
         conn.close()
         return [Article(*r) for r in rows]
 
-    def save_query(self, query, response, site):
+    def save_query(self, query: str, response: list[int], site: str) -> None:
         conn = self._connect()
         cur = conn.cursor()
         try:
@@ -119,7 +119,7 @@ class Database:
         finally:
             conn.close()
 
-    def get_queries(self):
+    def get_queries(self) -> list[str]:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT query FROM queries")
@@ -127,7 +127,7 @@ class Database:
         conn.close()
         return [row[0] for row in rows]
 
-    def get_query_results(self, query):
+    def get_query_results(self, query: str) -> list[int]:
         conn = self._connect()
         cur = conn.cursor()
         row = cur.execute("SELECT response FROM queries WHERE query = ?", (query,)).fetchone()
@@ -137,7 +137,7 @@ class Database:
         ids = json.loads(row[0])
         return ids if ids else []
 
-    def get_unexplored(self):
+    def get_unexplored(self) -> list[int]:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT id FROM pages WHERE explored = 0")
@@ -145,7 +145,7 @@ class Database:
         conn.close()
         return [r[0] for r in rows]
 
-    def get_popular_words(self):
+    def get_popular_words(self) -> dict[str, int]:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT title FROM pages")
@@ -157,7 +157,7 @@ class Database:
                 counter[word] += 1
         return counter
 
-    def pop_next_fetch_request(self):
+    def pop_next_fetch_request(self) -> int:
         conn = self._connect()
         cur = conn.cursor()
         row = cur.execute("SELECT paper_id FROM fetch_requests ORDER BY rowid ASC LIMIT 1").fetchone()

@@ -1,13 +1,14 @@
-from collaborative_webcrawler_server.scrapers.extra.scopus_scraper import ScopusScraper as Scraper
+from collaborative_scraper.scrapers.extra.scopus_scraper import ScopusScraper, RequestData, Phase
+from collaborative_scraper.parse_html.extra.scopus import ScopusArticle as Article
 
 # TODO check that this is still working!!!
 
-class KeywordScraper(Scraper):
-    def __init__(self, keywords, *args, **kwargs):
+class KeywordScraper(ScopusScraper):
+    def __init__(self, keywords: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.keywords = keywords
     
-    def find_next_article(self):
+    def find_next_article(self) -> Article:
         for article in self.new_articles:
             for keyword in self.keywords:
                 if keyword in article.title.lower():
@@ -18,17 +19,18 @@ class KeywordScraper(Scraper):
         self.new_articles.remove(next_article)
         return next_article
 
-    def _update_impl(self, article, request_data):
+    def _update_impl(self, article: Article, request_data: RequestData) -> None:
         """Hook for subclasses to extend update behaviour."""
-        fetch_phase = request_data.get("fetch_phase")
+        if request_data is None:
+            return
         # Don't save cited papers. The idea is that those are already the most important ones and you don't care about what they cite if it's not cited anymore anyway.
-        if fetch_phase != "CITED":
+        if request_data.fetch_phase == Phase.CITING:
             if article not in self.new_articles and article.id not in self.explored:
                 self.new_articles.append(article)
                 self.explored.add(article.id)
 
-class KeywordScraper(Scraper):
-    def __init__(self, keywords, *args, **kwargs):
+class KeywordScraper(ScopusScraper):
+    def __init__(self, keywords: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.keywords = keywords
         self.current_keyword = None
@@ -37,10 +39,10 @@ class KeywordScraper(Scraper):
         self.second_scraper = None
         self.known_queries = self.db.get_queries()
 
-    def _request_generator(self):
+    def _request_generator(self) -> str:
         yield from self.fetch_scopus_papers()
     
-    def fetch_scopus_papers(self):
+    def fetch_scopus_papers(self) -> str:
         for keyword in self.keywords:
             if keyword in self.known_queries:
                 print(f"skipping query: {keyword}")
@@ -59,16 +61,17 @@ class KeywordScraper(Scraper):
             self.db.save_query(keyword, self.current_keyword, "scopus")
         self.done = True
 
-    def _update_impl(self, article, request_data):
+    def _update_impl(self, article: Article, request_data: RequestData) -> None:
         if self.current_keyword is None:
             return
         if article not in self.discovered:
             self.discovered.append(article)
         self.current_keyword.append(article.id)
 
-    def next_target(self):
+    def next_target(self) -> tuple[str, RequestData]:
         for target in self.request_stream:
-            return target
+            request_data = RequestData(self.current_article, self.fetch_phase)
+            return target, request_data
         if self.done:
             print("WE ARE DONE LOOKING FOR KEYWORDS")
             self.second_scraper = SeedScraper(*[article.id for article in self.discovered])
@@ -77,7 +80,7 @@ class KeywordScraper(Scraper):
         return self.second_scraper.next_target
 
     @property
-    def fetch_phase(self):
+    def fetch_phase(self) -> Phase:
         if self.second_scraper is None:
             return None
         else:

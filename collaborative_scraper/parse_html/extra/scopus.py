@@ -1,13 +1,13 @@
-from collaborative_webcrawler_server.parse_html.base import *
+from collaborative_scraper.parse_html.base import *
 import logging
 
 logger = logging.getLogger(__name__)
 
-class Scopus_Article(Article):
+class ScopusArticle(Article):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def load_from_page(self, node):
+    def load_from_page(self, node: html.HtmlElement) -> None:
         try:
             title = node.xpath("td[2]/div/div/h3/a")[0]
         except IndexError:
@@ -26,8 +26,8 @@ class Scopus_Article(Article):
         self.num_cited = -1
         return True
 
-def extract_articles(path):
-    page = load_page(path)
+def extract_articles(html_page: str) -> list[Article]:
+    page = load_page(html_page)
     articles = []
 
     # If message No article match is visible return []
@@ -49,7 +49,7 @@ def extract_articles(path):
         element = elements[i]
         
         # print(i)
-        article = Scopus_Article()
+        article = ScopusArticle()
         # print(element.text_content())
         # Sometimes we have an empty line out of nowhere...
         if not article.load_from_page(element):
@@ -65,17 +65,17 @@ def extract_articles(path):
         raise Exception("Missing articles -> Make sure to set max number per page.")
     return articles
 
-def get_papers_citing(article, offset=0): # the settings are not respected, so careful
+def get_papers_citing(article: Article, offset: int = 0) -> str: # the settings are not respected, so careful
     if offset:
         return f"https://www.scopus.com/results/results.uri?s=ref%282-s2.0-{article.id:010d}%29&sot=cite&sdt=a&origin=resultslist&src=s&sort=cp-f&limit=200&offset={offset}"
     return f"https://www.scopus.com/results/results.uri?s=ref%282-s2.0-{article.id:010d}%29&sot=cite&sdt=a&origin=resultslist&src=s&sort=cp-f&limit=200"
 
-def get_papers_cited(article, offset=0):
+def get_papers_cited(article: Article, offset: int = 0) -> str:
     if offset:
         return f"https://www.scopus.com/results/results.uri?s=CITEID({article.id:010d})&sot=record&sdt=references&origin=recordpage&src=s&sort=cp-f&limit=200&offset={offset}"
     return f"https://www.scopus.com/results/results.uri?s=CITEID({article.id:010d})&sot=record&sdt=references&origin=recordpage&src=s&sort=cp-f&limit=200"
 
-def get_papers_from_keyword(keyword, offset=0):
+def get_papers_from_keyword(keyword: str, offset: int = 0) -> str:
     if offset:
         return f"https://www.scopus.com/results/results.uri?s=TITLE-ABS-KEY%28{keyword}%29&limit=200&origin=searchbasic&sort=cp-f&src=s&sot=b&sdt=b&offset={offset}"
     return f"https://www.scopus.com/results/results.uri?s=TITLE-ABS-KEY%28{keyword}%29&limit=200&origin=searchbasic&sort=cp-f&src=s&sot=b&sdt=b"

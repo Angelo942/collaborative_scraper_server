@@ -3,9 +3,10 @@ from platformdirs import user_config_dir, user_data_dir
 import os
 import json
 
-def find_database():
+def find_database() -> str:
     APP_NAME = __package__.split('.')[0]
     config_file = Path(user_config_dir(APP_NAME)) / "config.json"
+    config_file.parent.mkdir(exist_ok=True)
     if config_file.exists() and (data := config_file.read_text()):
         config = json.loads(data)
     else:
@@ -16,7 +17,6 @@ def find_database():
         data_dir = Path(user_data_dir(APP_NAME))
         data_dir.mkdir(exist_ok=True)
         config["db_dir"] = str(data_dir)
-        print(config)
         config_file.write_text(json.dumps(config))
     if "db_name" in config:
         db_name = config["db_name"]
@@ -26,7 +26,7 @@ def find_database():
         config_file.write_text(json.dumps(config))
     return data_dir / db_name
 
-def save_snapshot(payload, SNAPSHOT_DIR):
+def save_snapshot(payload, SNAPSHOT_DIR) -> None:
     # Save snapshot to disk for inspection
     html = payload.get("html", "")
     meta = payload.get("meta", {})
@@ -42,7 +42,7 @@ def save_snapshot(payload, SNAPSHOT_DIR):
         print(f"[SNAPSHOT] Error saving HTML snapshot: {e}")
         raise e
 
-def delete_snapshot(path, SNAPSHOT_DIR):
+def delete_snapshot(path, SNAPSHOT_DIR) -> None:
     try:
         if  path.parent == SNAPSHOT_DIR:
             os.remove(path)
