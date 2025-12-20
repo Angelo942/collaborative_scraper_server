@@ -11,20 +11,15 @@ def find_database() -> str:
         config = json.loads(data)
     else:
         config = {}
-    if "db_dir" in config:
-        data_dir = Path(config["db_dir"])
+    if "db_path" in config:
+        db_path = Path(config["db_path"])
     else:
         data_dir = Path(user_data_dir(APP_NAME))
         data_dir.mkdir(exist_ok=True)
-        config["db_dir"] = str(data_dir)
+        db_path = data_dir / "data.db"
+        config["db_path"] = str(db_path)
         config_file.write_text(json.dumps(config))
-    if "db_name" in config:
-        db_name = config["db_name"]
-    else:
-        db_name = "default.db"
-        config["db_name"] = db_name
-        config_file.write_text(json.dumps(config))
-    return data_dir / db_name
+    return db_path
 
 def save_snapshot(payload: dict, SNAPSHOT_DIR: Path) -> None:
     # Save snapshot to disk for inspection
