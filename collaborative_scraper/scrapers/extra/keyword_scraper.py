@@ -68,7 +68,7 @@ class KeywordScraper(ScopusScraper):
             self.discovered.append(article)
         self.current_keyword.append(article.id)
 
-    def next_target(self) -> tuple[str, RequestData]:
+    def generate_request(self) -> tuple[str, RequestData]:
         for target in self.request_stream:
             request_data = RequestData(self.current_article, self.fetch_phase)
             return target, request_data

@@ -122,7 +122,7 @@ class ScopusScraper(BaseScraper):
                 break
             self.old_cited_len = len(current_article.cited)
 
-    def next_target(self) -> tuple[str, RequestData]:
+    def generate_request(self) -> tuple[str, RequestData]:
         while True:
             next_url = next(self.request_stream)
             if (self.fetch_phase == Phase.CITING and len(self.current_article.citing) == min(self.current_article.num_citing, 2000)): # There is a limit to 2000 papers on scopus

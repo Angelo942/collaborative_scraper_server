@@ -53,11 +53,11 @@ class ScopusArticle(Article):
 
         citing_section = page.xpath("/html/body/div/div/main/div/section/article/div[2]/div/div/div[1]/button[3]/span")[0]
         citing_string = citing_section.text_content()
-        self.num_citing = re.search(r'\((\S+)\)', citing_string, re.IGNORECASE).group(1)
+        self.num_citing = int(re.search(r'\((\S+)\)', citing_string, re.IGNORECASE).group(1))
 
         cited_section = page.xpath("/html/body/div/div/main/div/section/article/div[2]/div/div/div[1]/button[4]/span")[0]
         cited_string = cited_section.text_content()
-        self.num_cited = re.search(r'\((\S+)\)', cited_string, re.IGNORECASE).group(1)
+        self.num_cited = int(re.search(r'\((\S+)\)', cited_string, re.IGNORECASE).group(1))
 
     # TODO handle explored in the scrapers
     # This doesn't work unfortunately because on scopus we don't know immediately how many papers cited a given paper

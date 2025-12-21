@@ -60,7 +60,7 @@ def receive():
                 db.update_page(article)
 
     if can_redirect:
-        next_page, request_data = scraper.next_target() # Will update the state and current article 
+        next_page, request_data = scraper.generate_request() # Will update the state and current article 
         # TODO handle job done
         if next_page is None:
             instructions += [

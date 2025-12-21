@@ -30,8 +30,8 @@ class Article:
         self._explored = explored
     
     def load_from_page(self, node:html.HtmlElement) -> bool:
-        """ Extract the paper details from an html page """
-        raise NotImplemented
+        """ Extract the paper details from an html page. Return True on success """
+        raise NotImplementedError
 
     @property
     def explored(self) -> bool:
@@ -51,10 +51,12 @@ class Article:
 
 
 def extract_articles(html_page: str, path: str) -> list[Article] | None:
-    raise NotImplemented
+    raise NotImplementedError
 
 def get_papers_citing(article: Article) -> str:
-    raise NotImplemented
+    """ return the link to a page listing the articles citing a given article """
+    raise NotImplementedError
 
 def get_papers_cited(article: Article) -> str:
-    raise NotImplemented
+    """ return the link to a page listing the articles cited by a given article """
+    raise NotImplementedError
