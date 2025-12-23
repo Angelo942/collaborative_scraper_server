@@ -1,4 +1,6 @@
-from collaborative_scraper.parse_html.base import *
+from collaborative_scraper.parse_html.extra.science_article import Article
+from lxml import html
+from collaborative_scraper.utils import safe_int
 
 class Sciencedirect_Article(Article):
     def __init__(self, *args, **kwargs):
@@ -11,7 +13,7 @@ class Sciencedirect_Article(Article):
         self.link = node.xpath("//*[@id='article-identifier-links']/a/span/span")[0].text_content()
         scopus_link = node.xpath("//*[@id='citing-articles-view-all-btn']")[0].attrib["href"]
         self.id = int(scopus_link.split("s2.0-")[-1].split("&")[0])
-        
+            
         self.year = int(title.xpath("div/span")[0].text_content().split()[0])
 
         citing = node.xpath("//*[@id='citing-articles-header']/h2")[0].text_content()
@@ -22,10 +24,10 @@ class Sciencedirect_Article(Article):
         return True
 
 def extract_article_info(html_page: str) -> Article:
-    page = load_page(html_page)
+    page = html.fromstring(html_page)
     article = Sciencedirect_Article()
     article.load_from_page(page)
     return article
 
-def extract_articles(html_page: str, path: str) -> list[Article] | None:
+def extract_elements(html_page: str, path: str) -> list[Article] | None:
     return [extract_article_info(html_page)]

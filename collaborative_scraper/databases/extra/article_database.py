@@ -1,16 +1,13 @@
 import sqlite3
 import json
-from collaborative_scraper.parse_html.base import Article
+from collaborative_scraper.databases.base import ScraperDatabase
+from collaborative_scraper.parse_html.extra.science_article import Article
 from collections import Counter
 
-class Database:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
-
+class ArticleDatabase(ScraperDatabase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
     def _init_db(self) -> None:
         """Create tables if they don't exist"""
         conn = self._connect()
@@ -30,10 +27,11 @@ class Database:
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS queries (
-                query TEXT PRIMARY KEY,
+                query TEXT NOT NULL,
                 response TEXT,
-                site TEXT
-            )
+                site TEXT NOT NULL,
+                PRIMARY KEY (query, site)
+            );
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS fetch_requests (
@@ -44,7 +42,7 @@ class Database:
         conn.close()
 
     # --- Database helper functions ---
-    def save_page(self, article: Article) -> None:
+    def save_element(self, article: Article) -> None:
         conn = self._connect()
         cur = conn.cursor()
         try:
@@ -68,7 +66,7 @@ class Database:
         finally:
             conn.close()
 
-    def update_page(self, article: Article) -> None:
+    def update_element(self, article: Article) -> None:
         conn = self._connect()
         cur = conn.cursor()
         try:

@@ -1,4 +1,6 @@
-from collaborative_scraper.parse_html.base import *
+from collaborative_scraper.parse_html.extra.science_article import Article
+from lxml import html
+from collaborative_scraper.utils import formatted_int, safe_int
 
 class Webofscience_Article(Article):
     def __init__(self, *args, **kwargs):
@@ -29,9 +31,9 @@ class Webofscience_Article(Article):
 
         return True
 
-def extract_articles(html_page: str, path: str) -> list[Article] | None:
+def extract_elements(html_page: str, path: str) -> list[Article] | None:
     articles = []
-    page = load_page(html_page)
+    page = html.fromstring(html_page)
     for i, element in enumerate(page.xpath("/html/body/app-wos/main/div/div/div[2]/div/div/div[2]/app-input-route/app-base-summary-component/div/div[2]/app-records-list/app-record")):
         # print(i)
         article = Article()

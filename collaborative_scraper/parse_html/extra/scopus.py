@@ -1,7 +1,10 @@
-from collaborative_scraper.parse_html.base import *
+from __future__ import annotations
+from collaborative_scraper.parse_html.extra.science_article import Article
 import logging
 import re
 from collaborative_scraper.utils import save_snapshot, Path
+from lxml import html
+from collaborative_scraper.utils import formatted_int, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +75,7 @@ class ScopusArticle(Article):
     #     return self._explored
 
 def extract_articles_from_results(html_page: str) -> list[Article] | None:
-    page = load_page(html_page)
+    page = html.fromstring(html_page)
     articles = []
 
     # If message No article match is visible return []
@@ -93,12 +96,10 @@ def extract_articles_from_results(html_page: str) -> list[Article] | None:
     while i < len(elements):
         element = elements[i]
         
-        # print(i)
         article = ScopusArticle()
-        # print(element.text_content())
         # Sometimes we have an empty line out of nowhere...
         if not article.load_from_result_page(element):
-            print(f"skipping line {element.text_content()}")
+            logger.debug(f"skipping line {element.text_content()}")
             i += 1
             continue
         # print(article)
@@ -111,13 +112,13 @@ def extract_articles_from_results(html_page: str) -> list[Article] | None:
     return articles
 
 def extract_article_info_from_page(html_page: str, path: str) -> Article:
-    page = load_page(html_page)
+    page = html.fromstring(html_page)
     id = int(path.split("/")[-1])
     article = ScopusArticle(id=id)
     article.load_from_article_page(page)
     return article
 
-def extract_articles(html_page: str, path: str) -> list[Article]:
+def extract_elements(html_page: str, path: str) -> list[Article]:
     if path.startswith("/results"):
         return extract_articles_from_results(html_page)
     elif path.startswith("/pages"):

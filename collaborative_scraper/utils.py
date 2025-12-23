@@ -1,25 +1,29 @@
 from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
 import os
-import json
+import logging
 
-def find_database() -> str:
+logger = logging.getLogger(__name__)
+
+def get_config_file() -> Path:
     APP_NAME = __package__.split('.')[0]
     config_file = Path(user_config_dir(APP_NAME)) / "config.json"
     config_file.parent.mkdir(exist_ok=True)
-    if config_file.exists() and (data := config_file.read_text()):
-        config = json.loads(data)
-    else:
-        config = {}
-    if "db_path" in config:
-        db_path = Path(config["db_path"])
-    else:
-        data_dir = Path(user_data_dir(APP_NAME))
-        data_dir.mkdir(exist_ok=True)
-        db_path = data_dir / "data.db"
-        config["db_path"] = str(db_path)
-        config_file.write_text(json.dumps(config))
-    return db_path
+    if not config_file.exists():
+        config_file.write_text("{}")
+    return config_file
+
+def safe_int(value: str) -> int:
+    try:
+        return formatted_int(value)
+    except ValueError:
+        return 0
+
+def formatted_int(value: str) -> int:
+    return int(value.replace(",", "").replace(".", "").replace("_", ""))
+
+def formatted_float(value: str) -> int:
+    return float(value.replace(".", "").replace(",", "."))
 
 def save_snapshot(payload: dict, SNAPSHOT_DIR: Path) -> None:
     # Save snapshot to disk for inspection
@@ -31,18 +35,18 @@ def save_snapshot(payload: dict, SNAPSHOT_DIR: Path) -> None:
     path = SNAPSHOT_DIR / fname
     try:
         path.write_text(html)
-        # print(f"[SNAPSHOT] Saved HTML snapshot to {path}")
+        logger.debug("[SNAPSHOT] Saved HTML snapshot to %s", path)
         return path
     except Exception as e:
-        print(f"[SNAPSHOT] Error saving HTML snapshot: {e}")
+        logger.error("[SNAPSHOT] Error saving HTML snapshot: %s", e)
         raise e
 
 def delete_snapshot(path: Path, SNAPSHOT_DIR: Path) -> None:
     try:
         if  path.parent == SNAPSHOT_DIR:
             os.remove(path)
-            # print(f"[CLEANUP] Deleted snapshot {abs_path}")
+            # logger.debug("[CLEANUP] Deleted snapshot %s", abs_path)
         else:
-            print(f"[CLEANUP] Skipped deletion (outside {SNAPSHOT_DIR}): {abs_path}")
+            logger.warning("[CLEANUP] Skipped deletion (outside %s): %s", SNAPSHOT_DIR, abs_path)
     except Exception as e:
-        print(f"[CLEANUP] Could not delete {path}: {e}")
+        logger.error(f"[CLEANUP] Could not delete {path}: {e}")

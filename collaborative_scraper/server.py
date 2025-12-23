@@ -7,18 +7,20 @@ import secrets
 import tempfile
 from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
-from collaborative_scraper.db import Database
-from collaborative_scraper.parse_html.parser import extract_articles
-from collaborative_scraper.utils import find_database, save_snapshot, delete_snapshot
+from collaborative_scraper.databases.extra.article_database import ArticleDatabase
+from collaborative_scraper.parse_html.parser import extract_elements
+from collaborative_scraper.utils import save_snapshot, delete_snapshot
 from collaborative_scraper.scrapers.scraper import generate_scraper
+from collaborative_scraper.scrapers.scraper import supported_targets
+from collaborative_scraper.databases.utils import find_database
 import logging
 import os
+import argparse
 
-# Get log level from environment, default to INFO
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
 
 logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
+    level=getattr(logging, log_level, logging.WARNING),
     format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -29,9 +31,17 @@ CORS(app)  # allow cross-origin requests from extension
 
 current_requests = {}
 
-db_path = find_database()
-db = Database(db_path)
-scraper = generate_scraper(db)
+parser = argparse.ArgumentParser()
+parser.add_argument("--project", default="scopus:seed_scraper", choices = list(supported_targets.keys()))
+parser.add_argument("--info", action="store_true")
+args = parser.parse_args()
+
+target = args.project
+scraper = generate_scraper(target)
+
+if args.info:
+    print(f"database located at: {find_database(target)}")
+    exit()
 
 @app.route("/receive", methods=["POST"])
 def receive():
@@ -40,27 +50,24 @@ def receive():
     payload = request.get_json(force=True)
     token = payload.get("token")
     can_redirect = payload.get("allow_redirect", True)
-    articles = extract_articles(payload)
+    elements = extract_elements(payload)
     
     if token in current_requests: # if token is None should still return False
         request_data = current_requests[token] # Keep old page in case page is corrupted
     
-        if articles is None: # Corrupted page -> request again
+        if elements is None: # Corrupted page -> request again
             return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
         del current_requests[token]
 
-        for article in articles:
-            scraper.update(article, request_data)
-        scraper.success(request_data)
+        for element in elements:
+            scraper.update(element, request_data)
+        scraper.next_state(request_data)
     else:
-        if articles is not None:
-            for article in articles:
-                scraper.update(article)
-                db.update_page(article)
+        scraper.unknown_page(elements)
 
     if can_redirect:
-        next_page, request_data = scraper.generate_request() # Will update the state and current article 
+        next_page, request_data = scraper.generate_request() # Will update the state and current element 
         # TODO handle job done
         if next_page is None:
             instructions += [
@@ -80,7 +87,7 @@ def receive():
 
         request_token = secrets.token_hex(8)
         current_requests[request_token] = request_data
-        print(f"[ASSIGNMENT] {request_token} -> {next_page}")
+        logger.info(f"[ASSIGNMENT] {request_token} -> {next_page}")
 
         instructions += [
                 {"type": "set_token", "token": request_token}
@@ -95,14 +102,8 @@ def receive():
     else:
         logger.debug("User doesn't want to redirect")
 
-    # Not implemented yet
-    # if scraper.save_zotero:
-    #     instruction += {
-    #         "type": "zotero_save"
-    #     }
-
     return jsonify({"status": "ok", "instructions": instructions})
 
 if __name__ == "__main__":
-    print("[SERVER] Starting server on 127.0.0.1:5000")
+    logger.info("[SERVER] Starting server on 127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True)

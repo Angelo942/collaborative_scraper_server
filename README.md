@@ -11,8 +11,9 @@ The system is modular: parsing logic and scraping strategy are fully customizabl
 
 0. Install your desired parsers and scrapers.
 1. Start the server.
-2. Connect the browser extension or client to the server IP.
+2. Connect the browser extension the server IP.
 3. From the client navigate to one of the websites to be parse.
+4. Run the extension to start sending pages to the server.
 
 ---
 

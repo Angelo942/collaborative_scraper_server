@@ -94,6 +94,13 @@ def blacklist(article: Article):
 class ScopusScraper(BaseScraper):
     def __init__(self, *args, blacklist: Callable[[Article], bool] = blacklist, **kwargs):
         super().__init__(*args, blacklist = blacklist, **kwargs)
+        self.known_articles = {article.id : article for article in self.db.get_articles()}
+
+    def unknown_page(self, articles: list[Article]):
+        if articles is not None:
+            for article in articles:
+                self.update(article)
+                self.db.update_element(article)
 
     def _update_impl(self, article: Article, request_data: RequestData) -> None:
         """Hook for subclasses to extend update behaviour."""
@@ -104,6 +111,13 @@ class ScopusScraper(BaseScraper):
                 self.explored.add(article.id)
                 self.candidate_queue.append(article)
             
+    def next_state(self, request_data: RequestData) -> None:
+        if request_data.fetch_phase == Phase.CITING:
+            self.db.update_element(request_data.requested_article)
+        if request_data.fetch_phase == Phase.CITED:
+            request_data.requested_article.explored = True # Not completely true, but at least it's an estimation
+            self.db.update_element(request_data.requested_article)
+
     def _fetch_related_papers(self, current_article: Article) -> str:
         self.fetch_phase = Phase.CITING
         for i in range(current_article.num_citing // 200 + 1):
@@ -125,28 +139,28 @@ class ScopusScraper(BaseScraper):
     def generate_request(self) -> tuple[str, RequestData]:
         while True:
             next_url = next(self.request_stream)
-            if (self.fetch_phase == Phase.CITING and len(self.current_article.citing) == min(self.current_article.num_citing, 2000)): # There is a limit to 2000 papers on scopus
-                logger.info(f"skipping papers citing {self.current_article}")
-                for id in self.current_article.citing:
+            if (self.fetch_phase == Phase.CITING and len(self.current_element.citing) == min(self.current_element.num_citing, 2000)): # There is a limit to 2000 papers on scopus
+                logger.info(f"skipping papers citing {self.current_element}")
+                for id in self.current_element.citing:
                     if id not in self.known_articles:
                         logger.error("articles got corrupted: clearing unknown articles")
-                        self.clear_references(self.current_article)
+                        self.clear_references(self.current_element)
                         break
                     else:
-                        self._update_impl(self.known_articles[id], RequestData(self.current_article, self.fetch_phase)) # Careful to not change the state before calling update
+                        self._update_impl(self.known_articles[id], RequestData(self.current_element, self.fetch_phase)) # Careful to not change the state before calling update
                 self.fetch_phase = Phase.SKIPPING
-            elif (self.fetch_phase == Phase.CITED and len(self.current_article.cited) == self.current_article.num_cited) and (self.current_article.num_cited % 200 != 0 or self.current_article.num_cited == 0): # Skip the ones we know are 0
-                logger.info(f"skipping papers cited by {self.current_article}")
-                for id in self.current_article.cited:
+            elif (self.fetch_phase == Phase.CITED and len(self.current_element.cited) == self.current_element.num_cited) and (self.current_element.num_cited % 200 != 0 or self.current_element.num_cited == 0): # Skip the ones we know are 0
+                logger.info(f"skipping papers cited by {self.current_element}")
+                for id in self.current_element.cited:
                     if id not in self.known_articles:
                         logger.error("articles got corrupted: clearing unknown articles")
-                        self.clear_references(self.current_article)
+                        self.clear_references(self.current_element)
                         break
                     else:
-                        self._update_impl(self.known_articles[id], RequestData(self.current_article, self.fetch_phase))
+                        self._update_impl(self.known_articles[id], RequestData(self.current_element, self.fetch_phase))
             else:
                 break
 
-        logger.debug(f"[{len(self.candidate_queue)}] exploring {self.fetch_phase} {self.current_article}")
-        request_data = RequestData(self.current_article, self.fetch_phase)
+        logger.debug(f"[{len(self.candidate_queue)}] exploring {self.fetch_phase} {self.current_element}")
+        request_data = RequestData(self.current_element, self.fetch_phase)
         return next_url, request_data

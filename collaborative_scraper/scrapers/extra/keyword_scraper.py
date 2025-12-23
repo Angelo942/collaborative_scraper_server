@@ -1,5 +1,8 @@
 from collaborative_scraper.scrapers.extra.scopus_scraper import ScopusScraper, RequestData, Phase
 from collaborative_scraper.parse_html.extra.scopus import ScopusArticle as Article
+import logging
+
+logger = logging.getLogger(__name__)
 
 # TODO check that this is still working!!!
 
@@ -45,7 +48,7 @@ class KeywordScraper(ScopusScraper):
     def fetch_scopus_papers(self) -> str:
         for keyword in self.keywords:
             if keyword in self.known_queries:
-                print(f"skipping query: {keyword}")
+                logger.info(f"skipping query: {keyword}")
                 for id in self.db.get_query_results(keyword):
                     self.discovered.append(self.known_articles[id])
                 continue
@@ -55,7 +58,7 @@ class KeywordScraper(ScopusScraper):
             while len(self.current_keyword) % 200 == 0:
                 yield get_papers_from_keyword(keyword, len(self.current_keyword))
                 if len(self.current_keyword) == self.old_counter:
-                    print(f"found exactly {self.old_counter} papers")
+                    logger.debug(f"found exactly {self.old_counter} papers")
                     break
                 self.old_counter = len(self.current_keyword)
             self.db.save_query(keyword, self.current_keyword, "scopus")
@@ -70,7 +73,7 @@ class KeywordScraper(ScopusScraper):
 
     def generate_request(self) -> tuple[str, RequestData]:
         for target in self.request_stream:
-            request_data = RequestData(self.current_article, self.fetch_phase)
+            request_data = RequestData(self.current_element, self.fetch_phase)
             return target, request_data
         if self.done:
             print("WE ARE DONE LOOKING FOR KEYWORDS")
