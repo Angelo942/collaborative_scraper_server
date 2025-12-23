@@ -5,6 +5,8 @@ from collaborative_scraper.parse_html.extra.science_article import Article
 from collections import Counter
 
 class ArticleDatabase(ScraperDatabase):
+    db_name = "debug.db"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         

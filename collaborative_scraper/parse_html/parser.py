@@ -24,5 +24,10 @@ def extract_elements(payload: dict) -> list[ScrapedElement]:
     domain = parsed.netloc
     parser_function = supported_domains[domain]
     articles = parser_function(html_page, parsed.path)
-    logger.debug(f"[PARSE] Extracted %d article(s) from %s", len(articles), meta.get('url'))
+    if articles is None:
+        with open("./debug_page.html", "w") as fd:
+            fd.write(html_page)
+        logger.error("Error extracting articles!")
+    else:
+        logger.debug("Extracted %d article(s) from %s", len(articles), parsed.netloc + parsed.path)
     return articles

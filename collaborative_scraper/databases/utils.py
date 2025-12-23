@@ -7,6 +7,7 @@ def find_database(project: str) -> Path:
     APP_NAME = __package__.split('.')[0]
     data_dir = Path(user_data_dir(APP_NAME))
     project_dir = data_dir / project
+    assert ":" not in project
     project_dir.mkdir(exist_ok=True)
     assert project_dir.parent == data_dir
-    return project_dir / "data.db"
+    return project_dir #/ "data.db"

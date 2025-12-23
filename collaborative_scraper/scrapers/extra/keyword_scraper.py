@@ -48,7 +48,7 @@ class KeywordScraper(ScopusScraper):
     def fetch_scopus_papers(self) -> str:
         for keyword in self.keywords:
             if keyword in self.known_queries:
-                logger.info(f"skipping query: {keyword}")
+                logger.info("skipping query: %s", keyword)
                 for id in self.db.get_query_results(keyword):
                     self.discovered.append(self.known_articles[id])
                 continue
@@ -58,7 +58,7 @@ class KeywordScraper(ScopusScraper):
             while len(self.current_keyword) % 200 == 0:
                 yield get_papers_from_keyword(keyword, len(self.current_keyword))
                 if len(self.current_keyword) == self.old_counter:
-                    logger.debug(f"found exactly {self.old_counter} papers")
+                    logger.debug(f"found exactly  papers", self.old_counter)
                     break
                 self.old_counter = len(self.current_keyword)
             self.db.save_query(keyword, self.current_keyword, "scopus")

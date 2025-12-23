@@ -49,4 +49,4 @@ def delete_snapshot(path: Path, SNAPSHOT_DIR: Path) -> None:
         else:
             logger.warning("[CLEANUP] Skipped deletion (outside %s): %s", SNAPSHOT_DIR, abs_path)
     except Exception as e:
-        logger.error(f"[CLEANUP] Could not delete {path}: {e}")
+        logger.error("[CLEANUP] Could not delete %s: %s", path, e)

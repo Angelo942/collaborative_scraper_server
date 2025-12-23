@@ -41,12 +41,15 @@ def keyword_scraper(db):
     ], db=db)
 
 def scopus_scraper(db):
-    return Scraper
+    return Scraper(blacklist = lambda element: False, db=db)
+
+
 
 supported_targets = {
     "scopus:normal_scraper": scopus_scraper,
     "scopus:keyword_scraper": keyword_scraper,
     "scopus:seed_scraper": seed_scraper,
+    "scopus:debug": scopus_scraper,
 }
 
 def generate_scraper(target: str) -> Scraper:

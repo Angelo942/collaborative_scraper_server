@@ -45,30 +45,30 @@ if args.info:
 
 @app.route("/receive", methods=["POST"])
 def receive():
-    instructions = []
+    instructions = [] # Commands to send back to the client
 
     payload = request.get_json(force=True)
     token = payload.get("token")
     can_redirect = payload.get("allow_redirect", True)
     elements = extract_elements(payload)
-    
-    if token in current_requests: # if token is None should still return False
-        request_data = current_requests[token] # Keep old page in case page is corrupted
-    
-        if elements is None: # Corrupted page -> request again
-            return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
+
+    # Could be merged, but unknown_page gives us some nice control, more than calling multiple update(..., None)
+    request_data = current_requests.get(token)
+    if request_data is None:
+        scraper.unknown_page(elements)
+    else:
+        # Corrupted page -> request again
+        if elements is None: return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
         del current_requests[token]
 
         for element in elements:
             scraper.update(element, request_data)
-        scraper.next_state(request_data)
-    else:
-        scraper.unknown_page(elements)
+        request_data.fetch_phase = scraper.next_state(request_data)
 
     if can_redirect:
-        next_page, request_data = scraper.generate_request() # Will update the state and current element 
-        # TODO handle job done
+        next_page, request_data = scraper.generate_request(request_data)
+
         if next_page is None:
             instructions += [
                 {
@@ -87,7 +87,7 @@ def receive():
 
         request_token = secrets.token_hex(8)
         current_requests[request_token] = request_data
-        logger.info(f"[ASSIGNMENT] {request_token} -> {next_page}")
+        logger.info("[ASSIGNMENT] %s -> %s", request_token, next_page)
 
         instructions += [
                 {"type": "set_token", "token": request_token}

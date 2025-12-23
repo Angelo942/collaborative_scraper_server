@@ -13,7 +13,7 @@ class Article(ScrapedElement):
         self.num_cited = num_cited
         self.citing = json.loads(citing) if isinstance(citing, str) else ([] if citing is None else citing)
         self.cited  = json.loads(cited)  if isinstance(cited, str)  else ([] if cited  is None else cited)
-        self._explored = explored
+        self.explored = explored
 
     def load_from_page(self, node:html.HtmlElement) -> bool:
         """ Extract the paper details from an html page. Return True on success """
@@ -26,14 +26,6 @@ class Article(ScrapedElement):
     def get_papers_cited(self) -> str:
         """ return the link to a page listing the articles cited by a given article """
         raise NotImplementedError
-
-    @property
-    def explored(self) -> bool:
-        return self._explored
-
-    @explored.setter
-    def explored(self, value: bool):
-        self._explored = value
 
     def __gt__(self, article: Article):
         return self.num_citing > article.num_citing

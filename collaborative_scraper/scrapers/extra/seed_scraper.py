@@ -13,7 +13,7 @@ class SeedScraper(ScopusScraper):
         self.next_layer = set()
 
     def _pop_next_article(self) -> Article | None:
-        if len(self.current_layer) == 0:# or max(self.current_layer).num_citing < 1:
+        if len(self.current_layer) == 0 and len(self.candidate_waiting) == 0:
             self.current_layer = self.next_layer
             self.size_layer = len(self.current_layer)
             self.next_layer = set()
@@ -21,7 +21,7 @@ class SeedScraper(ScopusScraper):
         if len(self.current_layer):
             next_article = max(self.current_layer)
             self.current_layer.remove(next_article)
-            # next_article = self.current_layer.pop() # Take a random element to go faster
+            self.candidate_waiting.append(next_article)
             return next_article
         else:
             logger.warning("We don't have anything left to explore!")

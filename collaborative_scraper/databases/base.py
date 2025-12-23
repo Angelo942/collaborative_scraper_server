@@ -9,7 +9,7 @@ class ScraperDatabase:
     db_name = "default.db" # Is there a case where people may want multiple db for the same scraper ?....
 
     def __init__(self, db_path: Path):
-        self.db_path = db_path
+        self.db_path = db_path / self.db_name
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
