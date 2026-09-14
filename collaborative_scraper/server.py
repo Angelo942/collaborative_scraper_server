@@ -16,6 +16,7 @@ from collaborative_scraper.databases.utils import find_database
 import logging
 import os
 import argparse
+from collaborative_scraper.scrapers.base import Phase
 
 log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
 
@@ -38,10 +39,17 @@ args = parser.parse_args()
 
 target = args.project
 scraper = generate_scraper(target)
+project_name = target.split(":")[0]
 
 if args.info:
-    print(f"database located at: {find_database(target)}")
+    print(f"database located at: {find_database(project_name)}")
     exit()
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    # Lightweight health check the client pings on connect to confirm the
+    # server is up and working.
+    return jsonify({"status": "ok"})
 
 @app.route("/receive", methods=["POST"])
 def receive():
@@ -55,10 +63,22 @@ def receive():
     # Could be merged, but unknown_page gives us some nice control, more than calling multiple update(..., None)
     request_data = current_requests.get(token)
     if request_data is None:
-        scraper.unknown_page(elements)
+        # Page the client navigated to on its own. If it didn't parse
+        # (parser returns None for a page that wasn't fully loaded) there is
+        # nothing to record, so skip rather than crash unknown_page.
+        if elements is not None:
+            scraper.unknown_page(elements)
     else:
         # Corrupted page -> request again
-        if elements is None: return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
+        if elements is None:
+            # The page couldn't be parsed. Currently we just ask the client to
+            # reload. As an alternative, the standardized banner command can
+            # notify the user of the failure (kept unused for now):
+            # return jsonify({"status": "ok", "instructions": [
+            #     {"type": "banner", "level": "error",
+            #      "message": "This page could not be parsed and was skipped."}
+            # ]})
+            return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
         del current_requests[token]
 
@@ -66,23 +86,22 @@ def receive():
             scraper.update(element, request_data)
         request_data.fetch_phase = scraper.next_state(request_data)
 
+        if request_data.fetch_phase.value == Phase.DONE.value:
+            scraper.success(request_data)
+
     if can_redirect:
         next_page, request_data = scraper.generate_request(request_data)
 
         if next_page is None:
-            instructions += [
-                {
-                    "type": "insert_html",
-                    "selector": "body",
-                    "position": "afterbegin",
-                    "html": (
-                        "<div id='server-banner' "
-                        "style='position:fixed;left:0;right:0;top:0;background:#fffae6;"
-                        "padding:8px;border-bottom:1px solid #e6db9a;z-index:99999;'>"
-                        "Thank you, but no pages are needed at the moment</div>"
-                    )
-                }
-            ]
+            # Standardized banner command: the client owns the styling, the
+            # server only sends a message and a level ("info" | "error").
+            # instructions += [
+            #     {
+            #         "type": "banner",
+            #         "level": "info",
+            #         "message": "Thank you, but no pages are needed at the moment",
+            #     }
+            # ]
             return jsonify({"status": "ok", "instructions": instructions})
 
         request_token = secrets.token_hex(8)

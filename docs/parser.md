@@ -21,13 +21,13 @@ The core data model is an Article, which represents a single publication and con
 
 The primary method to implement is `load_from_page`. It receives a section of a html page and populates the fields of the Article instance from it.
 
-### extract_articles
+### extract_elements
 
-The `extract_articles` function is responsible for locating article entries within a page and instantiating corresponding Article objects.
+The `extract_elements` function is responsible for locating article entries within a page and instantiating corresponding Article objects.
 
-Some pages (e.g. result listings or reference sections) contain multiple article entries, `extract_articles` is responsible to identify the relevant DOM segments for each article, creates an Article instance for each one, and invokes `load_from_page` on the corresponding DOM node.
+Some pages (e.g. result listings or reference sections) contain multiple article entries, `extract_elements` is responsible to identify the relevant DOM segments for each article, creates an Article instance for each one, and invokes `load_from_page` on the corresponding DOM node.
 
-Because parser modules are defined per site, and a single site may expose multiple endpoints with distinct DOM structures, extract_articles also receives the page path. This allows it to dispatch to different extraction strategies depending on the endpoint being processed.
+Because parser modules are defined per site, and a single site may expose multiple endpoints with distinct DOM structures, extract_elements also receives the page path. This allows it to dispatch to different extraction strategies depending on the endpoint being processed.
 
 ## Examples
 
@@ -56,8 +56,8 @@ class MyArticle(Article):
 
         return True
 
-def extract_articles(html_page: str, path: str) -> list[Article] | None:
-    page = load_page(html_page)
+def extract_elements(html_page: str, path: str) -> list[Article] | None:
+    page = html.fromstring(html_page)
     article = MyArticle()
     return [article]
 ```

@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Phase(Enum):
+    DONE = 0
     STARTED = auto()
-    DONE = auto()
 
 class RequestData:
     def __init__(self, requested_element: ScrapedElement, fetch_phase: Phase):

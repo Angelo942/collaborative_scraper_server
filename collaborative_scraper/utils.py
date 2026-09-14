@@ -13,6 +13,14 @@ def get_config_file() -> Path:
         config_file.write_text("{}")
     return config_file
 
+def guarded_int(value: str, description: str = "") -> int:
+    """ int() that logs a critical message identifying the offending value before re-raising. """
+    try:
+        return int(value)
+    except ValueError as e:
+        logger.critical("can't convert %r to int%s", value, f" ({description})" if description else "")
+        raise e
+
 def safe_int(value: str) -> int:
     try:
         return formatted_int(value)

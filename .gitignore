@@ -1,1 +1,16 @@
-**/__pycache__
+# Block everything by default...
+/*
+
+# ...but keep the code and the files needed to build/run it
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/pyproject.toml
+!/requirements.txt
+!/collaborative_scraper/
+# !/docs/
+
+# Within the kept trees, still exclude plugin code, caches and scratch output
+**/extra/
+**/__pycache__/
+*.pyc
