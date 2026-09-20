@@ -2,16 +2,39 @@ from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
 import os
 import logging
+import string
+import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+def whitelist_project_name(name: str) -> bool:
+    alphabet = string.ascii_letters + string.digits + "_"
+    for letter in name:
+        if letter not in alphabet:
+            return False
+    return True
 
 def get_config_file() -> Path:
     APP_NAME = __package__.split('.')[0]
     config_file = Path(user_config_dir(APP_NAME)) / "config.json"
-    config_file.parent.mkdir(exist_ok=True)
+    config_file.parent.mkdir(parents=True, exist_ok=True)
     if not config_file.exists():
         config_file.write_text("{}")
     return config_file
+
+def get_project_dir(project_name: str) -> Path:
+    config_file = get_config_file()
+    config = json.loads(config_file.read_text())
+    project_data = config.get(project_name)
+    if project_data is not None and "folder" in project_data:
+        project_dir = Path(project_data["folder"])
+    else:
+        APP_NAME = __package__.split('.')[0]
+        data_dir = Path(user_data_dir(APP_NAME))
+        project_dir = data_dir / project_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    return project_dir
 
 def guarded_int(value: str, description: str = "") -> int:
     """ int() that logs a critical message identifying the offending value before re-raising. """

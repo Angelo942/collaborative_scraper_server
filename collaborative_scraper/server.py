@@ -7,9 +7,8 @@ import secrets
 import tempfile
 from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
-from collaborative_scraper.databases.extra.article_database import ArticleDatabase
 from collaborative_scraper.parse_html.parser import extract_elements
-from collaborative_scraper.utils import save_snapshot, delete_snapshot
+from collaborative_scraper.utils import save_snapshot, delete_snapshot, whitelist_project_name, get_config_file, get_project_dir
 from collaborative_scraper.scrapers.scraper import generate_scraper
 from collaborative_scraper.scrapers.scraper import supported_targets
 from collaborative_scraper.databases.utils import find_database
@@ -33,16 +32,23 @@ CORS(app)  # allow cross-origin requests from extension
 current_requests = {}
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--project", default="scopus:seed_scraper", choices = list(supported_targets.keys()))
+parser.add_argument("project_pos", nargs="?", metavar="project", choices = list(supported_targets.keys()))
+parser.add_argument("--project", default=None, choices = list(supported_targets.keys()))
 parser.add_argument("--info", action="store_true")
 args = parser.parse_args()
+if args.project_pos and args.project and args.project_pos != args.project:
+    parser.error("project given both positionally and via --project with different values")
+args.project = args.project_pos or args.project or "test:passive"
 
 target = args.project
+assert len(target.split(":")) == 2
+project_name, _ = target.split(":")
+assert whitelist_project_name(project_name)
 scraper = generate_scraper(target)
-project_name = target.split(":")[0]
 
 if args.info:
-    print(f"database located at: {find_database(project_name)}")
+    print(f"database for {project_name} located at: {find_database(project_name)}")
+    print(f"config file located at {get_config_file()}")
     exit()
 
 @app.route("/ping", methods=["GET"])
@@ -58,16 +64,31 @@ def receive():
     payload = request.get_json(force=True)
     token = payload.get("token")
     can_redirect = payload.get("allow_redirect", True)
-    elements = extract_elements(payload)
+    meta = payload.get("meta", {})
+    html_page = payload.get("html", "")
+    url = meta.get("url", "")
+    try:
+        elements = extract_elements(html_page, url)
+    except Exception as e:
+        if log_level == "DEBUG":
+            path = get_project_dir(project_name)
+            save_snapshot(payload, path)
+            logger.critical(f"could not parse elements. Page save {path}")
+            raise e
+        else:
+            logger.warning(f"could not parse elements")
+            elements = None
 
-    # Could be merged, but unknown_page gives us some nice control, more than calling multiple update(..., None)
     request_data = current_requests.get(token)
     if request_data is None:
         # Page the client navigated to on its own. If it didn't parse
         # (parser returns None for a page that wasn't fully loaded) there is
         # nothing to record, so skip rather than crash unknown_page.
         if elements is not None:
-            scraper.unknown_page(elements)
+            # We may want to send also the url in case the scraper wants to decide what to do based on that
+            # But the type of the element could already tell that
+            # It doesn't say what was the request though, so the full payload could help
+            scraper.unknown_page(elements, url)
     else:
         # Corrupted page -> request again
         if elements is None:
@@ -78,6 +99,7 @@ def receive():
             #     {"type": "banner", "level": "error",
             #      "message": "This page could not be parsed and was skipped."}
             # ]})
+            logger.warning("No elements could be extracted. Page likely corrupted")
             return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
         del current_requests[token]
@@ -95,13 +117,13 @@ def receive():
         if next_page is None:
             # Standardized banner command: the client owns the styling, the
             # server only sends a message and a level ("info" | "error").
-            # instructions += [
-            #     {
-            #         "type": "banner",
-            #         "level": "info",
-            #         "message": "Thank you, but no pages are needed at the moment",
-            #     }
-            # ]
+            instructions += [
+                {
+                    "type": "banner",
+                    "level": "info",
+                    "message": "Thank you, but no more pages are needed at the moment",
+                }
+            ]
             return jsonify({"status": "ok", "instructions": instructions})
 
         request_token = secrets.token_hex(8)

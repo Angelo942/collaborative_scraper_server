@@ -1,16 +1,31 @@
 from __future__ import annotations
 
 class ScrapedElement:
+    """
+    Base class for one item a parser pulls out of a page.
+
+    A plugin subclasses this to hold the fields it wants to keep (title, url,
+    ...) - the scraper and database work in terms of these objects. Subclasses
+    define ``__repr__`` for logging, and ``__gt__`` if they rely on the default
+    frontier, which orders candidates by priority.
+    """
+
     def __init__(self):
         pass
 
-    def __gt__(self, element: ScrapedElement):
-        """ Define a metric of priority between two elements to parse """
-        raise NotImplementedError
-
-    # Is this required ?
     def __repr__(self):
         raise NotImplementedError
 
 def extract_elements(html_page: str, path: str) -> list[ScrapedElement] | None:
+    """
+    Parse a page into a list of ``ScrapedElement`` - a plugin's parser entry point.
+
+    Registered per host in ``parser.py`` and called by the server for each page.
+    Branch on ``path`` (which may carry GET parameters) to parse different page
+    types of the same site.
+
+    Returns:
+        The parsed elements, or ``None`` if the page wasn't fully loaded - the
+        contract every caller relies on to skip incomplete pages.
+    """
     raise NotImplementedError
