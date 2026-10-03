@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "collaborative_scraper"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Server to coordinate distributed webcrawling"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,7 +16,18 @@ dependencies = [
 "flask-cors",
 "lxml",
 "platformdirs",
+"tomli; python_version < '3.11'",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "collaborative_scraper.__version__"}
+
+# Implicit namespace packages (there are no __init__.py below the top level),
+# so discovery is by namespace - which would otherwise sweep in the gitignored
+# extra/ plugin trees and the test suite.
+[tool.setuptools.packages.find]
+include = ["collaborative_scraper*"]
+exclude = ["collaborative_scraper.*extra*", "collaborative_scraper.tests*"]
 
 [project.scripts]
 collaborative_scraper = "collaborative_scraper.server:main"

@@ -1,34 +1,27 @@
 import logging
 from urllib.parse import urlparse
+
 from collaborative_scraper.parse_html.base import ScrapedElement
+from collaborative_scraper.registry import get_registry
 
 logger = logging.getLogger(__name__)
 
-# Map each site domain to its extractor (parse_html/extra/<project>/...).
-# Example:
-#   from collaborative_scraper.parse_html.extra.myproject.mysite import extract_elements as extract_from_mysite
-supported_domains = {
-    # "www.mysite.com": extract_from_mysite,
-}
+def supported_domains() -> dict:
+    """host -> parser, as declared by the installed plugins."""
+    return get_registry().parsers
 
-def extract_elements(payload: dict) -> list[ScrapedElement]:
+def extract_elements(html_page: str, url: str) -> list[ScrapedElement] | None:
     """ Must return None if the page was not fully loaded """
-    meta = payload.get("meta", {})
-    html_page = payload.get("html", "")
-    url = meta.get("url", "")
+
     parsed = urlparse(url)
-    domain = parsed.netloc
-    parser_function = supported_domains[domain]
-    try:
-        articles = parser_function(html_page, parsed.path)
-        if articles is None:
-            with open("./debug_page.html", "w") as fd:
-                fd.write(html_page)
-            logger.error("Error extracting articles!")
-        else:
-            logger.debug("Extracted %d article(s) from %s", len(articles), parsed.netloc + parsed.path)
-        return articles
-    except Exception as e:
-        with open("./debug_page.html", "w") as fd:
-            fd.write(html_page)
-        logger.error("Uncaught exception parsing page! %s", e)
+    domain = parsed.netloc.lower()
+    domains = supported_domains()
+    parser_function = domains.get(domain)
+    if parser_function is None:
+        # Not an error the client can do anything about: it visited a page no
+        # installed plugin parses. Say which hosts *are* parsed, so a missing
+        # or half-loaded plugin is obvious from the log line alone.
+        logger.warning("%s is not in the supported domains: %s",
+                       domain or url, sorted(domains) or "none (no plugin installed)")
+        return None
+    return parser_function(html_page, parsed.path)

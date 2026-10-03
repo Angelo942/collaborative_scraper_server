@@ -1,10 +1,11 @@
 from enum import Enum, auto
-from collections.abc import Callable
 from collaborative_scraper.parse_html.base import ScrapedElement
 from collaborative_scraper.databases.base import ScraperDatabase
 import logging
 
 logger = logging.getLogger(__name__)
+
+DONE = 0
 
 class Phase(Enum):
     """
@@ -15,8 +16,11 @@ class Phase(Enum):
     ...). The one fixed rule: ``DONE`` must be ``0``, the shared "request
     finished" value the server checks for.
     """
-    DONE = 0
+    DONE = DONE
     STARTED = auto()
+
+def is_done(phase: Phase) -> bool:
+    return phase.value == DONE
 
 class RequestData:
     """
@@ -70,17 +74,16 @@ class BaseScraper:
         usually ``unknown_page`` to seed the crawl from the first page.
     """
 
-    def __init__(self, db: ScraperDatabase, blacklist: Callable[[ScrapedElement], bool] = lambda element: False):
+    def __init__(self, db: ScraperDatabase):
         """
         Args:
             db: The plugin's database instance (a ``ScraperDatabase`` subclass).
                 It is the scraper's only persistence layer - call your own
-                ``save_*`` / ``load_*`` helpers on it.
-            blacklist: Optional predicate; return ``True`` for an element that
-                should never be explored. Used by the default frontier only.
+                ``save_*`` / ``load_*`` helpers on it. The plugin's factory
+                builds it, so a scraper that needs more than a path can take
+                whatever else it likes alongside this argument.
         """
         self.db = db
-        self.blacklist = blacklist
         self.candidate_queue = []      # elements discovered but not yet fetched
         self.candidate_waiting = []     # elements currently being fetched
         self.special_request = False

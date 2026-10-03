@@ -1,131 +1,125 @@
 # Collaborative Scraper (Server)
 
 This is a backend server for a collaborative web-scraping system.
-It allows teams to collect structured data from websites by sending HTML pages to the server using it's [browser extension](https://github.com/Angelo942/collaborative_scraper_extension). The server parses the pages, stores results in a database, and manages which pages should be crawled next.
+It allows teams to collect structured data from websites by sending HTML pages to the server using its [browser extension](https://github.com/Angelo942/collaborative_scraper_extension). The server parses the pages, stores results in a database, and manages which pages should be crawled next.
 
-The system is modular: parsing logic and scraping strategy are fully customizable for different projects and data sources.
+The server itself is generic: everything specific to a website or project (parsers, crawling strategy, database schema) lives in **plugins**, separate pip-installable packages the server discovers at startup.
 
 ---
 
 ## Usage overview
 
-0. Install your desired parsers and scrapers.
-1. Start the server.
-2. Connect the browser extension the server IP.
-3. From the client navigate to one of the websites to be parse.
+0. Install the server and the plugin(s) for the sites you want to crawl.
+1. Start the server on one of the targets the plugins provide.
+2. Connect the browser extension to the server IP.
+3. From the client navigate to one of the websites to be parsed.
 4. Run the extension to start sending pages to the server.
 
 ---
 
 ## Installation
 
-Clone the repository and install dependencies:
-
 ```bash
 git clone https://github.com/Angelo942/collaborative_scraper_server.git
-cd collaborative_scraper
+cd collaborative_scraper_server
+pip install -e .
 ```
 
-Follow the instructions to configure parsers and scrapers
-
-Finally run the server:
+Then install one or more plugins (each is its own package):
 
 ```bash
-pip install -r requirements.txt
-python3 -m collaborative_scraper.server
+pip install -e /path/to/plugin-scopus
 ```
+
+## Running
+
+A target is `project:variant`, e.g. `scopus:seed_scraper`. There is no default:
+
+```bash
+collaborative_scraper --list-targets
+collaborative_scraper scopus:seed_scraper
+```
+
+`python3 -m collaborative_scraper.server` works the same way.
+
+| option | |
+| --- | --- |
+| `--list-targets` | every target and the plugin providing it |
+| `--list-plugins` | installed plugins and their versions |
+| `--info` | project folder, database file and config file path for a target |
+| `--host` / `--port` | default `127.0.0.1` / `5000` |
+| `--debug` | Flask debug mode |
+
+A plugin that fails to load is logged and skipped, not fatal. If a target you expect is missing from `--list-targets`, read the logged traceback (or run with `LOG_LEVEL=DEBUG`).
 
 ---
 
 ## Key Components
 
-1. Parsers
-
-- Extract structured information from raw HTML pages.
-- Each website requires a dedicated parser because HTML structures differ.
-- Modular: you can add, replace, or customize parsers per domain.
-
-2. Scrapers
-
-- Decide what extracted data to store and which pages to crawl next.
-- Manage crawling strategy and prioritization.
-- Modular: you can add or replace scrapers to suit your project workflow.
-
-Since the parsers and scrapers are so specific to your goal here we only include the base structure for the project. You can write your own modules or download pre-made ones.
+1. **Parsers** extract structured information from raw HTML pages. Each website needs a dedicated parser, registered per host.
+2. **Scrapers** decide what extracted data to store and which pages to crawl next. A project can offer several variants (e.g. a passive one that only records what the user visits, and an active one that drives the client).
+3. **Databases** persist the results. Each plugin brings its own SQLite schema; the server only decides where the file lives.
 
 ---
 
-## Parser
+## Writing a plugin
 
-Each website has a different HTML structure, so a dedicated parser is required for each supported domain.
+A plugin is a normal Python package that declares an entry point in the `collaborative_scraper.plugins` group, pointing at a `register(reg)` function:
 
-### Adding a Parser
-
-Copy your parser module in:
-
-`collaborative_scraper/parse_html/extra/`
-
-If you want to write your own you can find instructions [here](docs/parser.md)
-
-Register the parser in:
-
-`collaborative_scraper/parse_html/parser.py`
-
-with:
-
-```py
-# Assuming you installed a parser for target_website_1 and target_website_2
-from collaborative_scraper.parse_html.extra.target_website_1 import extract_articles as extract_articles_from_target_website_1
-from collaborative_scraper.parse_html.extra.target_website_2 import extract_articles as extract_articles_from_target_website_2
-
-supported_domains = {
-    "<www.a_target_website.com>": extract_articles_from_target_website_1,
-    "<www.another_target_website.com>": extract_articles_from_target_website_2,
-}
+```toml
+# the plugin's pyproject.toml
+[project.entry-points."collaborative_scraper.plugins"]
+mysite = "collaborative_scraper_mysite:register"
 ```
 
-## Scraper
+```python
+# collaborative_scraper_mysite/__init__.py
+from collaborative_scraper.api import BaseScraper, ScraperDatabase, ScrapedElement
 
-The scraper defines the crawling strategy. It controls:
+def register(reg):
+    reg.project("mysite")                              # exactly once: owns the "mysite:" namespace
+    reg.parser("www.mysite.com", extract_elements)     # host -> parser
+    reg.scraper("passive", _passive)                   # bare variant -> target "mysite:passive"
 
-- How extracted data is stored
-- How new URLs are discovered
-- Which pages should be crawled next
-- Crawling prioritization logic
-
-### Adding a Scraper
-
-Copy your scraper module in:
-
-`collaborative_scraper/scrapers/extra/`
-
-Select and configure the scraper in:
-
-`collaborative_scraper/scrapers/scraper.py`
-
-Instructions to write your own can be found [here](docs/scraper.md)
-
-by constructing your scraper with the arguments needed and returning it ìn `generate_scraper`
-
-```py
-from collaborative_scraper.scrapers.extra.your_scraper import YourScraper
-
-def generate_scraper(db: Database) -> Scraper:
-    return = YourScraper(<some_args>, <other_args>, db=db)
+def _passive(cfg):
+    # cfg is the target's config table; cfg["db_file"] is the resolved database path
+    return MyPassiveScraper(MyDatabase(cfg["db_file"]))
 ```
+
+Import only from `collaborative_scraper.api` — it re-exports everything a plugin needs (`ScrapedElement`, `BaseScraper`, `RequestData`, `Phase`, `DONE`, `ScraperDatabase`, `Registrar`).
+
+- **Parser**: `extract_elements(html_page, path) -> list[ScrapedElement] | None`. Return `None` when the page wasn't fully loaded. See [docs/parser.md](docs/parser.md).
+- **Scraper**: a subclass of `BaseScraper`, built by the factory passed to `reg.scraper`. See [docs/scraper.md](docs/scraper.md).
+- **Database**: a subclass of `ScraperDatabase`. It is not registered; your factory opens it.
+
+### Prototyping without packaging
+
+Load an importable module's `register()` without an entry point:
+
+```bash
+COLLABORATIVE_SCRAPER_PLUGINS=my_module collaborative_scraper mysite:passive
+```
+
+or list it in the config file (below) under `[core] plugins = ["my_module"]`.
+
+---
 
 ## Configuration
 
-The server can be configured using a JSON configuration file.
+One TOML file, `config.toml`, in the user config directory (`~/.config/collaborative_scraper/config.toml` on Linux; `--info` prints the exact path). Every table is optional.
 
-### Default Configuration Location (Linux)
+```toml
+[core]
+plugins = ["my_module"]              # extra unpackaged plugins
 
-`~/.config/collaborative_scraper/config.json`
+[projects.scopus]
+folder = "/mnt/data/scopus"          # project folder: database + snapshots
 
-### Database Configuration
-
-```json
-{"db_path": "/path/to/database.db"}
+[targets."scopus:debug"]
+db_file = "debug.db"                 # a file name inside the project folder
+seeds = ["..."]                      # any other key is passed to the plugin's factory
 ```
 
-If needed you can specify a path for the database to save the data to. If no configuration file is present, the default value is used: `~/.local/share/collaborative_scraper/data.db`.
+- The project folder defaults to `~/.local/share/collaborative_scraper/<project>` on Linux.
+- `db_file` defaults to `<project>.db` and always lives inside the project folder; to move a database, move the folder.
+- A target's settings are its project table merged with its `[targets."project:variant"]` table.
