@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from enum import Enum, auto
-from collaborative_scraper.parse_html.base import ScrapedElement
+from urllib.parse import urlencode
+from collaborative_scraper.parse_html.base import ScrapedElement, Result
 from collaborative_scraper.databases.base import ScraperDatabase
 import logging
 
@@ -22,6 +24,90 @@ class Phase(Enum):
 def is_done(phase: Phase) -> bool:
     return phase.value == DONE
 
+class Request:
+    """
+    A page for the client to fetch, as returned by ``generate_request``.
+
+    Use one of the subclasses; each knows the instruction that makes the
+    extension fetch it. ``parameters`` is the form of a ``POSTRequest`` (what
+    the parser receives as ``post_parameters`` when the page comes back), the
+    JSON body of a ``FETCHRequest``, and ``None`` for a GET.
+    """
+
+    def __init__(self, url: str):
+        self.url = url
+        self.parameters = None
+
+    def instruction(self) -> dict:
+        raise NotImplementedError
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.url!r})"
+
+class GETRequest(Request):
+    """Navigate to ``url`` with ``parameters`` (name -> value) as its query arguments."""
+
+    def __init__(self, url: str, parameters: dict = None):
+        super().__init__(url)
+        self.parameters = parameters or {}
+
+    def link(self) -> str:
+        """``url`` with ``parameters`` url-encoded into its query string."""
+        if not self.parameters:
+            return self.url
+        separator = "&" if "?" in self.url else "?"
+        return f"{self.url}{separator}{urlencode(self.parameters)}"
+
+    def instruction(self) -> dict:
+        return {"type": "GET", "url": self.link()}
+
+    def __repr__(self):
+        return f"GETRequest({self.url!r}, {self.parameters!r})"
+
+class POSTRequest(Request):
+    """Submit ``parameters`` (name -> value, sent as a form) to ``url``."""
+
+    def __init__(self, url: str, parameters: dict):
+        super().__init__(url)
+        self.parameters = parameters
+
+    def instruction(self) -> dict:
+        return {"type": "POST", "url": self.url, "parameters": self.parameters}
+
+    def __repr__(self):
+        return f"POSTRequest({self.url!r}, {self.parameters!r})"
+
+class FETCHRequest(Request):
+    """
+    Call an API from the current page with ``fetch()``. The tab does not navigate.
+
+    Always a POST of ``parameters`` as the JSON body; the extension sets the
+    headers. The request carries the page's cookies, so the tab must already be
+    on the same origin as ``url``.
+
+    The response never reaches a parser: the extension posts it to
+    ``/fetch_result``, the server decodes the JSON and calls
+    ``callback(json, request_data)``, which returns the next ``Request`` for
+    this fetch (typically a ``GETRequest`` built from an id in the response),
+    or ``None`` to let ``generate_request`` pick the next one. A failed fetch
+    (non-2xx status or a body that is not JSON) skips the callback and also
+    falls back to ``generate_request``.
+    """
+
+    def __init__(self, url: str, parameters: dict,
+                 callback: Callable[[dict, "RequestData"], Request | None]):
+        super().__init__(url)
+        if not callable(callback):
+            raise TypeError(f"callback is not callable: {callback!r}")
+        self.parameters = parameters
+        self.callback = callback
+
+    def instruction(self) -> dict:
+        return {"type": "FETCH", "url": self.url, "body": self.parameters}
+
+    def __repr__(self):
+        return f"FETCHRequest({self.url!r}, {self.parameters!r})"
+
 class RequestData:
     """
     The context the server keeps in memory related to a specific server-assigned fetch request.
@@ -36,6 +122,15 @@ class RequestData:
         requested_element: Whatever the scraper asked about (an element, an id,
             a search term - the scraper decides).
         fetch_phase: The current ``Phase`` of this request.
+        request: The ``Request`` the client is currently carrying out for this
+            fetch, set by the server each time it hands one out (from
+            ``generate_request`` or a ``FETCHRequest`` callback). The server
+            reads a ``POSTRequest``'s form from it for the parser, and a
+            ``FETCHRequest``'s callback when the response arrives.
+        result: The ``Result`` of the last page returned for this fetch, set by
+            the server before the ``update`` calls, so ``update`` /
+            ``next_state`` / ``success`` can read its ``metadata`` and ``url``.
+            ``None`` until a page has come back.
 
     Subclasses may attach their own attributes to a ``RequestData`` instance to
     carry state across the request parsing.
@@ -44,6 +139,8 @@ class RequestData:
     def __init__(self, requested_element: ScrapedElement, fetch_phase: Phase):
         self.requested_element = requested_element
         self.fetch_phase = fetch_phase
+        self.request = None
+        self.result = None
 
     def __repr__(self):
         return f"{self.requested_element=}, {self.fetch_phase}"
@@ -57,13 +154,13 @@ class BaseScraper:
     through ``POST /receive``. For each page a client posts, it calls, in order:
 
       * no token (the client navigated on its own)
-          - ``unknown_page(elements, url)``
+          - ``unknown_page(result)``
       * token present (a page this scraper asked for came back)
           - ``update(element, request_data)`` once per parsed element
           - ``next_state(request_data)`` -> the request's new ``Phase``
           - ``success(request_data)`` iff that phase is ``DONE``
       * then, only if the client allows redirects (active mode)
-          - ``generate_request(request_data)`` -> the next page to fetch
+          - ``generate_request(request_data)`` -> the next ``GETRequest`` / ``POSTRequest`` / ``FETCHRequest``
 
     What to override depends on the mode you chose:
 
@@ -89,7 +186,7 @@ class BaseScraper:
         self.special_request = False
 
     # We should maybe rename instead to something that says it was a page not explicitly requested
-    def unknown_page(self, elements: list[ScrapedElement], url: str) -> None:
+    def unknown_page(self, result: Result) -> None:
         """
         Handle a page the client navigated to on its own (no fetch token).
 
@@ -97,7 +194,10 @@ class BaseScraper:
         An active scraper may also find a uses to it.
 
         Args:
-            elements: The parsed elements from the visited page.
+            result: The parsed page: ``result.elements``, the parser's
+                ``result.metadata`` (may be ``None``) and ``result.url``, the
+                address the client visited. Never ``None`` - a page that did
+                not parse is skipped before this hook.
         """
         pass
 
@@ -140,19 +240,22 @@ class BaseScraper:
         """
         pass
 
-    def generate_request(self, request_data: RequestData = None) -> tuple[str, RequestData] | tuple[None, None]:
+    def generate_request(self, request_data: RequestData = None) -> tuple[Request, RequestData] | tuple[None, None]:
         """
         Choose the next page for the client to fetch (active mode only).
 
-        Called when the client allows redirects. Return ``(url, RequestData)``
-        to fetch next, or ``(None, None)`` to stop the crawl. Required for
-        active scrapers.
+        Called when the client allows redirects. Return ``(request, RequestData)``
+        to fetch next, where ``request`` is a ``GETRequest(url, parameters)`` (query
+        arguments, encoded into the url by the server), a ``POSTRequest(url, parameters)`` (a form) or a
+        ``FETCHRequest(url, parameters, callback)`` (a JSON API call, no
+        navigation; ``callback`` turns the response into the next request), or
+        ``(None, None)`` to stop the crawl. Required for active scrapers.
 
         Args:
             request_data: The fetch that just completed, or ``None`` after a
                 spontaneous page.
 
         Returns:
-            A ``(url, request_data)`` pair, or ``(None, None)`` when finished.
+            A ``(request, request_data)`` pair, or ``(None, None)`` when finished.
         """
         raise NotImplementedError

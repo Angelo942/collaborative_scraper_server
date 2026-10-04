@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
-from collaborative_scraper.parse_html.base import ScrapedElement
+from collaborative_scraper.parse_html.base import Result
 from collaborative_scraper.registry import get_registry
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,8 @@ def supported_domains() -> dict:
     """host -> parser, as declared by the installed plugins."""
     return get_registry().parsers
 
-def extract_elements(html_page: str, url: str) -> list[ScrapedElement] | None:
+def extract_elements(html_page: str, url: str, get_parameters: dict | None = None,
+                     post_parameters: dict | None = None) -> Result | None:
     """ Must return None if the page was not fully loaded """
 
     parsed = urlparse(url)
@@ -24,4 +25,8 @@ def extract_elements(html_page: str, url: str) -> list[ScrapedElement] | None:
         logger.warning("%s is not in the supported domains: %s",
                        domain or url, sorted(domains) or "none (no plugin installed)")
         return None
-    return parser_function(html_page, parsed.path)
+    result = parser_function(html_page, parsed.path, get_parameters or {}, post_parameters or {})
+    if result is None or isinstance(result, Result):
+        return result
+    raise TypeError(f"parser for {domain!r} returned {type(result).__name__}, "
+                    f"expected Result or None")

@@ -86,9 +86,9 @@ def _passive(cfg):
     return MyPassiveScraper(MyDatabase(cfg["db_file"]))
 ```
 
-Import only from `collaborative_scraper.api` — it re-exports everything a plugin needs (`ScrapedElement`, `BaseScraper`, `RequestData`, `Phase`, `DONE`, `ScraperDatabase`, `Registrar`).
+Import only from `collaborative_scraper.api` — it re-exports everything a plugin needs (`ScrapedElement`, `Result`, `BaseScraper`, `RequestData`, `GETRequest`, `POSTRequest`, `FETCHRequest`, `Phase`, `DONE`, `is_done`, `ScraperDatabase`, `Registrar`).
 
-- **Parser**: `extract_elements(html_page, path) -> list[ScrapedElement] | None`. Return `None` when the page wasn't fully loaded. See [docs/parser.md](docs/parser.md).
+- **Parser**: `extract_elements(html_page, path, get_parameters, post_parameters) -> Result | None`. Wrap the parsed elements in a `Result` (with optional `metadata`), or return `None` when the page wasn't fully loaded. See [docs/parser.md](docs/parser.md).
 - **Scraper**: a subclass of `BaseScraper`, built by the factory passed to `reg.scraper`. See [docs/scraper.md](docs/scraper.md).
 - **Database**: a subclass of `ScraperDatabase`. It is not registered; your factory opens it.
 
