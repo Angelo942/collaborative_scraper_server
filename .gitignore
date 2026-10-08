@@ -8,6 +8,7 @@
 !/pyproject.toml
 !/requirements.txt
 !/collaborative_scraper/
+!/plugin_template/
 # !/docs/
 
 # Within the kept trees, still exclude plugin code, caches and scratch output

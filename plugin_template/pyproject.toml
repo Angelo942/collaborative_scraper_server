@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collaborative_scraper_template"
+version = "0.1.0"
+description = "Template plugin for collaborative_scraper: accepts any website and prints each page"
+requires-python = ">=3.10"
+dependencies = [
+"collaborative_scraper",
+"lxml",
+]
+
+# How the core finds the plugin: <entry point name> = "<module>:<register function>"
+[project.entry-points."collaborative_scraper.plugins"]
+template = "collaborative_scraper_template:register"
