@@ -16,7 +16,7 @@ class Registry:
 
     def __init__(self):
         self.projects = {}     # "imdb"                 -> plugin name
-        self.parsers = {}      # "www.imdb.com"         -> callable(html, url, request_data)
+        self.parsers = {}      # "www.imdb.com/title"   -> callable(html, url, request_data)
         self.scrapers = {}     # "imdb:passive_scraper" -> callable(cfg)
         self.plugins = {}      # plugin name            -> version
         self._origin = {}      # (kind, key)            -> plugin name
@@ -34,9 +34,9 @@ class Registry:
         # ---- validate everything before touching the live tables ----
         self._check_free("project", project, reg.plugin,
                          lambda o: f"claims project {project!r}, already provided by {o!r}")
-        for host in reg.parsers:
-            self._check_free("parser", host, reg.plugin,
-                             lambda o, h=host: f"claims parser for {h!r}, already provided by {o!r}")
+        for pattern in reg.parsers:
+            self._check_free("parser", pattern, reg.plugin,
+                             lambda o, p=pattern: f"claims parser for {p!r}, already provided by {o!r}")
         for variant in reg.scrapers:
             target = f"{project}:{variant}"
             self._check_free("target", target, reg.plugin,
@@ -46,9 +46,9 @@ class Registry:
         self.projects[project] = reg.plugin
         self._origin[("project", project)] = reg.plugin
 
-        for host, fn in reg.parsers.items():
-            self.parsers[host] = fn
-            self._origin[("parser", host)] = reg.plugin
+        for pattern, fn in reg.parsers.items():
+            self.parsers[pattern] = fn
+            self._origin[("parser", pattern)] = reg.plugin
 
         for variant, factory in reg.scrapers.items():
             target = f"{project}:{variant}"
@@ -65,6 +65,10 @@ class Registry:
     def owner(self, target: str) -> str | None:
         """Which plugin provides this target."""
         return self._origin.get(("target", target))
+
+    def parser_owner(self, pattern: str) -> str | None:
+        """Which plugin provides the parser for this url pattern."""
+        return self._origin.get(("parser", pattern))
 
     def targets_of(self, project: str) -> list[str]:
         return sorted(t for t in self.scrapers if t.split(":")[0] == project)

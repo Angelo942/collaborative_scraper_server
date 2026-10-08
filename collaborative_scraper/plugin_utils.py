@@ -19,7 +19,7 @@ class Registrar:
     def __init__(self, plugin: str):
         self.plugin = plugin          # entry point name, used in error messages
         self.project_name = None
-        self.parsers = {}             # host -> parser
+        self.parsers = {}             # url pattern -> parser
         self.scrapers = {}            # variant -> scraper_factory
 
     def project(self, name: str) -> None:
@@ -33,13 +33,17 @@ class Registrar:
                 f"invalid project name {name!r}: letters, digits and _ only")
         self.project_name = name
 
-    def parser(self, host: str, fn) -> None:
-        host = host.lower()
+    def parser(self, pattern: str, fn) -> None:
+        """Parse pages whose url matches ``pattern``: ``"*"``, ``"site.com"`` (and its
+        subdomains), ``"www.site.com"`` or ``"www.site.com/page"`` (and the pages below
+        it). The most specific match wins; see ``parse_html/parser.py:best_match``."""
+        host, _, path = pattern.strip().partition("/")
+        pattern = "/".join([host.lower(), *(s for s in path.split("/") if s)])
         if not callable(fn):
-            raise TypeError(f"parser for {host!r} is not callable: {fn!r}")
-        if host in self.parsers:
-            raise ValueError(f"parser for {host!r} declared twice")
-        self.parsers[host] = fn
+            raise TypeError(f"parser for {pattern!r} is not callable: {fn!r}")
+        if pattern in self.parsers:
+            raise ValueError(f"parser for {pattern!r} declared twice")
+        self.parsers[pattern] = fn
 
     def scraper(self, variant: str, factory: Callable[..., BaseScraper]) -> None:
         self._check_variant(variant)

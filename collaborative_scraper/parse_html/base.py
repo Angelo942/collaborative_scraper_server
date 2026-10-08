@@ -38,8 +38,8 @@ def extract_elements(html_page: str, url: str, request_data: RequestData | None)
     """
     Parse a page into a ``Result`` - a plugin's parser entry point.
 
-    Registered per host with ``reg.parser(host, fn)`` and called by the server
-    for each page.
+    Registered per url pattern with ``reg.parser(pattern, fn)`` and called by the
+    server for each page.
     ``url`` is the page's full url (scheme, host, path and query string): split it
     with ``urllib.parse`` to branch on the path or read the query arguments.
     ``request_data`` is the server-assigned fetch this page answers, or ``None``

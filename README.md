@@ -78,7 +78,7 @@ from collaborative_scraper.api import BaseScraper, ScraperDatabase, ScrapedEleme
 
 def register(reg):
     reg.project("mysite")                              # exactly once: owns the "mysite:" namespace
-    reg.parser("www.mysite.com", extract_elements)     # host -> parser
+    reg.parser("www.mysite.com", extract_elements)     # url pattern -> parser
     reg.scraper("passive", _passive)                   # bare variant -> target "mysite:passive"
 
 def _passive(cfg):

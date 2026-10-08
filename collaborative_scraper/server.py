@@ -201,6 +201,12 @@ def _targets_epilog(registry, targets) -> str:
     lines = [f"  {t:40} ({registry.owner(t)})" for t in targets]
     return "available targets:\n" + "\n".join(lines)
 
+def _domains_listing(registry) -> str:
+    if not registry.parsers:
+        return "no domains registered: no plugin is installed."
+    lines = [f"  {p:40} ({registry.parser_owner(p)})" for p in sorted(registry.parsers)]
+    return "registered domains:\n" + "\n".join(lines)
+
 def _resolve_target(parser, args, targets) -> str:
     """The project can be given positionally or with --project, not both."""
     if args.project_pos and args.project and args.project_pos != args.project:
@@ -229,6 +235,8 @@ def _get_parser(epilog, choices) -> argparse.ArgumentParser:
                         help="print installed plugins and their versions")
     parser.add_argument("--list-targets", action="store_true",
                         help="print every target and the plugin providing it")
+    parser.add_argument("--list-domains", action="store_true",
+                        help="print every registered domain and the plugin parsing it")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--debug", action="store_true")
@@ -250,6 +258,9 @@ def main(argv=None) -> None:
         return
     if args.list_targets:
         print(epilog)
+        return
+    if args.list_domains:
+        print(_domains_listing(registry))
         return
 
     target = _resolve_target(parser, args, targets)
