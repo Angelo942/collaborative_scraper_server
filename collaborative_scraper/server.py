@@ -10,13 +10,14 @@ from flask_cors import CORS
 from collaborative_scraper.config import config_path
 from collaborative_scraper.parse_html.parser import extract_elements
 from collaborative_scraper.registry import get_registry
-from collaborative_scraper.scrapers.base import ActionRequest, FETCHRequest, Request, is_done
+from collaborative_scraper.scrapers.base import ActionRequest, DownloadRequest, FETCHRequest, Request, is_done
 from collaborative_scraper.scrapers.scraper import generate_scraper, scraper_config, supported_targets
 from collaborative_scraper.utils import get_project_dir, save_snapshot
 
 logger = logging.getLogger(__name__)
 
 CLICK_ATTEMPTS = 3  # tries of one click before the failure is fatal
+DOWNLOAD_ATTEMPTS = 3  # tries of one download before it is skipped
 
 def configure_logging() -> None:
     log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
@@ -35,13 +36,14 @@ def create_app(target: str) -> Flask:
     project_name = target.split(":")[0]
     scraper = generate_scraper(target)
     current_requests = {}  # token -> RequestData
-    click_failures = {}    # RequestData -> failed tries of its current click
+    request_failures = {}  # RequestData -> failed tries of its current click or download
+    received = {}          # token -> bytes of its download written so far
 
     def assign(next_request, request_data) -> list[dict]:
         """Hand a request to the client: a fresh token plus the request's own instruction."""
         if not isinstance(next_request, Request):
-            raise TypeError(f"expected GETRequest, POSTRequest, FETCHRequest, ActionRequest or None, "
-                            f"got {type(next_request).__name__}")
+            raise TypeError(f"expected GETRequest, POSTRequest, FETCHRequest, ActionRequest, "
+                            f"DownloadRequest or None, got {type(next_request).__name__}")
         # Kept with the fetch: the parser reads it to know how the page was
         # reached (a POST's form, a click), /fetch_result needs a FETCH's callback.
         request_data.request = next_request
@@ -110,6 +112,81 @@ def create_app(target: str) -> Flask:
             return jsonify({"status": "ok", "instructions": next_instructions(request_data)})
         return jsonify({"status": "ok", "instructions": assign(next_request, request_data)})
 
+    @app.route("/download_result", methods=["POST"])
+    def receive_download():
+        """One chunk of the file of a DOWNLOAD instruction, as the raw request body.
+
+        Query string: ``token``, ``offset`` (the bytes posted before this chunk)
+        and, on the last request only, ``final=1`` with ``status`` (the file's
+        HTTP status, 0 when the browser could not fetch it) and ``retry=0`` when
+        trying again cannot help (the extension refused the url). Chunks are appended
+        to a ``.part`` file and the token stays open until ``final``, so the
+        scraper sees a single request: only the last one renames the file,
+        advances the fetch (``next_state``, ``success``) and returns the next
+        instructions. A failed download is handed out again with a fresh token,
+        up to ``DOWNLOAD_ATTEMPTS`` tries; after that ``request.path`` stays
+        ``None`` and the fetch advances anyway.
+        """
+        token = request.args.get("token")
+        request_data = current_requests.get(token)
+        download = None if request_data is None else request_data.request
+        if not isinstance(download, DownloadRequest):
+            # Unknown token (e.g. the server restarted) or not a DOWNLOAD:
+            # there is nowhere to put the file, so just move the client on.
+            logger.warning("download chunk for unknown token %r; ignoring it", token)
+            return jsonify({"status": "ok", "instructions": next_instructions(None)})
+
+        path = get_project_dir(project_name) / "downloads" / download.filename
+        part = path.with_name(f"{path.name}.{token}.part")  # one per token: two clients never share it
+        written = received.get(token, 0)
+        offset = request.args.get("offset", type=int)
+        final = request.args.get("final") == "1"
+        status = request.args.get("status", type=int)
+        if offset != written:
+            if not final:
+                # A chunk lost or sent twice: tell the extension what we have.
+                return jsonify({"status": "resend", "offset": written}), 409
+            # The last request is the one the client must get an answer to:
+            # bytes it sent never arrived, so the file is incomplete.
+            logger.warning("%s: the extension sent %r bytes, %d arrived", download, offset, written)
+            status = None
+        else:
+            part.parent.mkdir(parents=True, exist_ok=True)
+            with part.open("ab" if written else "wb") as out:
+                while chunk := request.stream.read(1 << 20):
+                    out.write(chunk)
+                    written += len(chunk)
+            received[token] = written
+        if not final:
+            return jsonify({"status": "ok", "received": written})
+
+        del current_requests[token]
+        received.pop(token, None)
+        if status is None or not 200 <= status < 300:
+            part.unlink(missing_ok=True)
+            failures = request_failures.pop(request_data, 0) + 1
+            if request.args.get("retry") == "0":
+                # The extension refused it (the user did not allow its site):
+                # trying again cannot help.
+                logger.error("%s refused by the extension (site not allowed); skipping it", download)
+            elif failures < DOWNLOAD_ATTEMPTS:
+                request_failures[request_data] = failures
+                logger.warning("%s failed with status %r; retrying (%d/%d)", download, status,
+                               failures + 1, DOWNLOAD_ATTEMPTS)
+                return jsonify({"status": "ok", "instructions": assign(download, request_data)})
+            else:
+                logger.error("%s failed %d times (status %r); skipping it", download, failures, status)
+        else:
+            request_failures.pop(request_data, None)
+            part.replace(path)
+            download.path = path
+            logger.info("%s saved to %s (%d bytes)", download, path, written)
+
+        request_data.fetch_phase = scraper.next_state(request_data)
+        if is_done(request_data.fetch_phase):
+            scraper.success(request_data)
+        return jsonify({"status": "ok", "instructions": next_instructions(request_data)})
+
     @app.route("/receive", methods=["POST"])
     def receive():
         instructions = [] # Commands to send back to the client
@@ -130,12 +207,12 @@ def create_app(target: str) -> Flask:
             # element is taken to be unreachable and the fetch is skipped: the
             # scraper is asked for the next request, as after a failed FETCH.
             del current_requests[token]
-            failures = click_failures.pop(request_data, 0) + 1
+            failures = request_failures.pop(request_data, 0) + 1
             if failures >= CLICK_ATTEMPTS:
                 logger.warning("%s failed %d times (%s); skipping it", request_data.request,
                                failures, click.get("error"))
                 return jsonify({"status": "ok", "instructions": next_instructions(request_data)})
-            click_failures[request_data] = failures
+            request_failures[request_data] = failures
             logger.warning("%s failed (%s); retrying (%d/%d)", request_data.request,
                            click.get("error"), failures + 1, CLICK_ATTEMPTS)
             return jsonify({"status": "ok", "instructions": assign(request_data.request, request_data)})
@@ -174,7 +251,7 @@ def create_app(target: str) -> Flask:
                 return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
             del current_requests[token]
-            click_failures.pop(request_data, None)
+            request_failures.pop(request_data, None)
 
             request_data.result = result # the page's metadata, for update / next_state / success
             for element in result.elements:

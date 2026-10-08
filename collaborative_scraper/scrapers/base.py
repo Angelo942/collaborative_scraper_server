@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from enum import Enum, auto
+from pathlib import PurePosixPath
 from urllib.parse import urlencode
 from collaborative_scraper.parse_html.base import ScrapedElement, Result
 from collaborative_scraper.databases.base import ScraperDatabase
@@ -8,6 +9,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 DONE = 0
+
+DOWNLOAD_CHUNK_BYTES = 4 << 20  # largest piece of a download the extension posts at once
 
 class Phase(Enum):
     """
@@ -32,7 +35,8 @@ class Request:
     extension fetch it. ``parameters`` is the form of a ``POSTRequest`` (the
     parser reads it from ``request_data.request`` when the page comes back), the
     JSON body of a ``FETCHRequest``, the query arguments of a ``GETRequest``, and
-    ``None`` for an ``ActionRequest``, which has no ``url`` either.
+    ``None`` for an ``ActionRequest``, which has no ``url`` either, and for a
+    ``DownloadRequest``, which saves the file at ``url`` instead of loading a page.
     """
 
     def __init__(self, url: str):
@@ -136,6 +140,35 @@ class ActionRequest(Request):
     def __repr__(self):
         return f"ActionRequest({self.xpath!r})"
 
+class DownloadRequest(Request):
+    """
+    Download ``url`` from the current page. The tab does not navigate.
+
+    The file never reaches a parser: the extension posts it to
+    ``/download_result`` in chunks of at most ``DOWNLOAD_CHUNK_BYTES``, and the
+    server writes it to ``filename``, a path relative to the project's
+    ``downloads`` folder, whatever its size. Once the last chunk is in, ``path``
+    is where the file was saved (``None`` if the download failed every try) and
+    the server calls ``next_state`` / ``success`` as for a page, with no
+    ``update``: the scraper reads ``request_data.request.path``. Like a FETCH,
+    the request carries the page's cookies, so the tab must already be on the
+    origin of ``url``.
+    """
+
+    def __init__(self, url: str, filename: str):
+        super().__init__(url)
+        relative = PurePosixPath(filename)
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ValueError(f"download filename must be a relative path inside the downloads folder: {filename!r}")
+        self.filename = filename
+        self.path = None
+
+    def instruction(self) -> dict:
+        return {"type": "DOWNLOAD", "url": self.url, "chunk_bytes": DOWNLOAD_CHUNK_BYTES}
+
+    def __repr__(self):
+        return f"DownloadRequest({self.url!r}, {self.filename!r})"
+
 class RequestData:
     """
     The context the server keeps in memory related to a specific server-assigned fetch request.
@@ -189,7 +222,10 @@ class BaseScraper:
           - ``next_state(request_data)`` -> the request's new ``Phase``
           - ``success(request_data)`` iff that phase is ``DONE``
       * then, only if the client allows redirects (active mode)
-          - ``generate_request(request_data)`` -> the next ``GETRequest`` / ``POSTRequest`` / ``FETCHRequest``
+          - ``generate_request(request_data)`` -> the next ``GETRequest`` / ``POSTRequest`` /
+            ``FETCHRequest`` / ``ActionRequest`` / ``DownloadRequest``
+      * a ``DownloadRequest`` finished (the file is saved, no parser runs)
+          - ``next_state(request_data)``, ``success`` iff ``DONE``, then ``generate_request``
 
     What to override depends on the mode you chose:
 
@@ -278,7 +314,9 @@ class BaseScraper:
         arguments, encoded into the url by the server), a ``POSTRequest(url, parameters)`` (a form), a
         ``FETCHRequest(url, parameters, callback)`` (a JSON API call, no
         navigation; ``callback`` turns the response into the next request) or an
-        ``ActionRequest(xpath, wait_for)`` (a click on the current page), or
+        ``ActionRequest(xpath, wait_for)`` (a click on the current page), a
+        ``DownloadRequest(url, filename)`` (a file saved to the project's
+        ``downloads`` folder, no navigation), or
         ``(None, None)`` to stop the crawl. Required for active scrapers.
 
         Args:
