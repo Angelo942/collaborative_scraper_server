@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import secrets
-from urllib.parse import parse_qsl, urlsplit
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -11,11 +10,13 @@ from flask_cors import CORS
 from collaborative_scraper.config import config_path
 from collaborative_scraper.parse_html.parser import extract_elements
 from collaborative_scraper.registry import get_registry
-from collaborative_scraper.scrapers.base import FETCHRequest, POSTRequest, Request, is_done
+from collaborative_scraper.scrapers.base import ActionRequest, FETCHRequest, Request, is_done
 from collaborative_scraper.scrapers.scraper import generate_scraper, scraper_config, supported_targets
 from collaborative_scraper.utils import get_project_dir, save_snapshot
 
 logger = logging.getLogger(__name__)
+
+CLICK_ATTEMPTS = 3  # tries of one click before the failure is fatal
 
 def configure_logging() -> None:
     log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
@@ -34,14 +35,15 @@ def create_app(target: str) -> Flask:
     project_name = target.split(":")[0]
     scraper = generate_scraper(target)
     current_requests = {}  # token -> RequestData
+    click_failures = {}    # RequestData -> failed tries of its current click
 
     def assign(next_request, request_data) -> list[dict]:
         """Hand a request to the client: a fresh token plus the request's own instruction."""
         if not isinstance(next_request, Request):
-            raise TypeError(f"expected GETRequest, POSTRequest, FETCHRequest or None, "
+            raise TypeError(f"expected GETRequest, POSTRequest, FETCHRequest, ActionRequest or None, "
                             f"got {type(next_request).__name__}")
-        # Kept with the fetch: the parser needs a POST's form when the page
-        # returns, /fetch_result needs a FETCH's callback.
+        # Kept with the fetch: the parser reads it to know how the page was
+        # reached (a POST's form, a click), /fetch_result needs a FETCH's callback.
         request_data.request = next_request
         request_token = secrets.token_hex(8)
         current_requests[request_token] = request_data
@@ -120,17 +122,28 @@ def create_app(target: str) -> Flask:
         url = meta.get("url", "")
 
         request_data = current_requests.get(token)
-        get_parameters = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
-        # Only a page the server asked the client to POST has a form to report.
-        post_parameters = None
-        if request_data is not None and isinstance(request_data.request, POSTRequest):
-            post_parameters = request_data.request.parameters
+        click = meta.get("click")
+        if (request_data is not None and isinstance(request_data.request, ActionRequest)
+                and click is not None and not click.get("ok")):
+            # The page is still the one the click was made on: send the same
+            # click again with a fresh token. After CLICK_ATTEMPTS failures the
+            # element is taken to be unreachable and the fetch is skipped: the
+            # scraper is asked for the next request, as after a failed FETCH.
+            del current_requests[token]
+            failures = click_failures.pop(request_data, 0) + 1
+            if failures >= CLICK_ATTEMPTS:
+                logger.warning("%s failed %d times (%s); skipping it", request_data.request,
+                               failures, click.get("error"))
+                return jsonify({"status": "ok", "instructions": next_instructions(request_data)})
+            click_failures[request_data] = failures
+            logger.warning("%s failed (%s); retrying (%d/%d)", request_data.request,
+                           click.get("error"), failures + 1, CLICK_ATTEMPTS)
+            return jsonify({"status": "ok", "instructions": assign(request_data.request, request_data)})
 
         try:
-            result = extract_elements(html_page, url, get_parameters, post_parameters)
+            result = extract_elements(html_page, url, request_data)
             if result is not None:
                 result.url = url
-            elements = None if result is None else result.elements
         except Exception as e:
             # In DEBUG the page that broke the parser is worth more than
             # uptime: dump it next to the project's data and let it crash.
@@ -140,17 +153,16 @@ def create_app(target: str) -> Flask:
                 raise e
             else:
                 logger.warning("could not parse elements", exc_info=True)
-                elements = None
+                result = None
 
         if request_data is None:
             # Page the client navigated to on its own. If it didn't parse
             # (parser returns None for a page that wasn't fully loaded) there is
             # nothing to record, so skip rather than crash unknown_page.
-            if elements is not None:
+            if result is not None:
                 scraper.unknown_page(result)
         else:
-            # Corrupted page -> request again
-            if elements is None:
+            if result is None:
                 # The page couldn't be parsed. Currently we just ask the client to
                 # reload. As an alternative, the standardized banner command can
                 # notify the user of the failure (kept unused for now):
@@ -162,9 +174,10 @@ def create_app(target: str) -> Flask:
                 return jsonify({"status": "ok", "instructions": [{"type": "reload"}]})
 
             del current_requests[token]
+            click_failures.pop(request_data, None)
 
             request_data.result = result # the page's metadata, for update / next_state / success
-            for element in elements:
+            for element in result.elements:
                 scraper.update(element, request_data)
             request_data.fetch_phase = scraper.next_state(request_data)
 
@@ -223,8 +236,7 @@ def _get_parser(epilog, choices) -> argparse.ArgumentParser:
 
 def main(argv=None) -> None:
     configure_logging()
-
-    # Discovery must happen before the parser is built: choices= comes from it.
+    
     registry = get_registry()
     targets = supported_targets()
     epilog = _targets_epilog(registry, targets)
@@ -243,8 +255,6 @@ def main(argv=None) -> None:
     target = _resolve_target(parser, args, targets)
 
     if args.info:
-        # The database lives inside the project folder: print the folder once
-        # and the database relative to it, rather than repeating the prefix.
         project_dir = get_project_dir(target.split(':')[0])
         db_file = scraper_config(target)["db_file"]
         print(f"project folder located at: {project_dir}")

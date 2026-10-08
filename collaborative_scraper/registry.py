@@ -2,7 +2,9 @@ import importlib
 import importlib.metadata as md
 import logging
 import os
+import sys
 from functools import lru_cache
+from pathlib import Path
 
 from collaborative_scraper.plugin_utils import Registrar
 
@@ -14,7 +16,7 @@ class Registry:
 
     def __init__(self):
         self.projects = {}     # "imdb"                 -> plugin name
-        self.parsers = {}      # "www.imdb.com"         -> callable(html, path)
+        self.parsers = {}      # "www.imdb.com"         -> callable(html, url, request_data)
         self.scrapers = {}     # "imdb:passive_scraper" -> callable(cfg)
         self.plugins = {}      # plugin name            -> version
         self._origin = {}      # (kind, key)            -> plugin name
@@ -97,8 +99,12 @@ def _build_registry() -> Registry:
     # _register_builtins(_registry)
     for ep in md.entry_points(group=GROUP):
         _load(_registry, ep.name, ep.load, _plugin_version(ep))
-    for module in _extra_modules():
-        _load(_registry, module, lambda m=module: _module_register(m), "local")
+    for entry in _extra_plugins():
+        if _is_path(entry):
+            for name, resolve, version in _folder_plugins(entry):
+                _load(_registry, name, resolve, version)
+        else:
+            _load(_registry, entry, lambda m=entry: _module_register(m), "local")
     return _registry
 
 @lru_cache(maxsize=1)
@@ -133,13 +139,53 @@ def _module_register(module: str):
     except AttributeError:
         raise AttributeError(f"module {module!r} defines no register(reg)") from None
 
-def _extra_modules() -> list[str]:
-    """Unpackaged plugins, for prototyping.
+def _is_path(entry: str) -> bool:
+    """A plugin folder rather than a module name: has a separator or starts with ~ or ."""
+    return "/" in entry or os.sep in entry or entry.startswith(("~", "."))
 
-    Importable module paths, from ``COLLABORATIVE_SCRAPER_PLUGINS`` (comma
-    separated) and from ``plugins`` in the ``[core]`` table of config.toml.
-    Listing the same module twice is harmless; listing one that is *also*
-    installed as an entry point is not, and install() rejects it by name.
+def _folder_plugins(entry: str) -> list[tuple]:
+    """(name, resolve, version) for each plugin in a folder named by path.
+
+    The folder is a plugin's project root: it goes on ``sys.path`` and the
+    ``collaborative_scraper.plugins`` entry points of its ``pyproject.toml`` are
+    loaded as if the plugin were installed. A folder without one is taken as a
+    bare package: its parent goes on ``sys.path`` and it is imported by name.
+    A problem with the folder itself is logged and the entry skipped.
+    """
+    from collaborative_scraper.config import tomllib
+
+    folder = Path(entry).expanduser().resolve()
+    pyproject = folder / "pyproject.toml"
+    try:
+        if pyproject.is_file():
+            project = tomllib.loads(pyproject.read_text()).get("project", {})
+            declared = project.get("entry-points", {}).get(GROUP, {})
+            if not declared:
+                raise ValueError(f"{pyproject} declares no [project.entry-points.\"{GROUP}\"]")
+            _add_to_path(folder)
+            version = project.get("version", "local")
+            return [(name, md.EntryPoint(name, value, GROUP).load, version)
+                    for name, value in declared.items()]
+        if (folder / "__init__.py").is_file():
+            _add_to_path(folder.parent)
+            return [(folder.name, lambda m=folder.name: _module_register(m), "local")]
+        raise FileNotFoundError(f"{folder} has neither a pyproject.toml nor an __init__.py")
+    except Exception:
+        logger.exception("plugin folder %r could not be read; skipping", entry)
+        return []
+
+def _add_to_path(folder: Path) -> None:
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
+
+def _extra_plugins() -> list[str]:
+    """Plugins that are not installed, for prototyping and debugging.
+
+    From ``COLLABORATIVE_SCRAPER_PLUGINS`` (comma separated) and from ``plugins``
+    in the ``[core]`` table of config.toml. Each entry is either a plugin folder
+    (a path; see ``_folder_plugins``) or an importable module name. Listing the
+    same entry twice is harmless; listing a plugin that is *also* installed as
+    an entry point is not, and install() rejects the second one by project.
     """
     from collaborative_scraper.config import core_settings
 

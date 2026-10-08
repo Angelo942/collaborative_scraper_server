@@ -34,17 +34,19 @@ class Result:
         self.elements = elements
         self.url: str | None = None
 
-def extract_elements(html_page: str, path: str, get_parameters: dict,
-                     post_parameters: dict) -> Result | None:
+def extract_elements(html_page: str, url: str, request_data: RequestData | None) -> Result | None:
     """
     Parse a page into a ``Result`` - a plugin's parser entry point.
 
     Registered per host with ``reg.parser(host, fn)`` and called by the server
     for each page.
-    Branch on ``path`` and the parameters the page was requested with to parse
-    different page types of the same site: ``get_parameters`` comes from the
-    url's query string, ``post_parameters`` from the form the client submitted
-    (empty for a GET). Both map a name to a single value.
+    ``url`` is the page's full url (scheme, host, path and query string): split it
+    with ``urllib.parse`` to branch on the path or read the query arguments.
+    ``request_data`` is the server-assigned fetch this page answers, or ``None``
+    for a page the client navigated to on its own. ``request_data.request`` is
+    the ``Request`` the client carried out: a ``POSTRequest``'s ``parameters`` are
+    the form it submitted, and an ``ActionRequest`` means the page is the one the
+    click left behind.
 
     Returns:
         The parsed elements in a ``Result``, or ``None`` if the page wasn't

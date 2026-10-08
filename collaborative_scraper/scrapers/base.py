@@ -29,9 +29,10 @@ class Request:
     A page for the client to fetch, as returned by ``generate_request``.
 
     Use one of the subclasses; each knows the instruction that makes the
-    extension fetch it. ``parameters`` is the form of a ``POSTRequest`` (what
-    the parser receives as ``post_parameters`` when the page comes back), the
-    JSON body of a ``FETCHRequest``, and ``None`` for a GET.
+    extension fetch it. ``parameters`` is the form of a ``POSTRequest`` (the
+    parser reads it from ``request_data.request`` when the page comes back), the
+    JSON body of a ``FETCHRequest``, the query arguments of a ``GETRequest``, and
+    ``None`` for an ``ActionRequest``, which has no ``url`` either.
     """
 
     def __init__(self, url: str):
@@ -108,6 +109,33 @@ class FETCHRequest(Request):
     def __repr__(self):
         return f"FETCHRequest({self.url!r}, {self.parameters!r})"
 
+class ActionRequest(Request):
+    """
+    Click an element of the current page. The tab does not navigate.
+
+    For details that only appear after a click (a card that opens a panel, a row
+    that expands). The extension clicks the first element at ``xpath``, waits
+    until the element at ``wait_for`` changes (anything on the page when
+    ``None``), then sends the page to ``/receive`` with this fetch's token, like
+    any other. Both are absolute XPaths, evaluated by the browser on the whole
+    page, so the tab must still be on the page they were taken from.
+
+    The parser tells the clicked page apart by ``request_data.request`` being an
+    ``ActionRequest``. A click that failed (element missing, nothing changed) is
+    reported in ``meta.click`` and raises in the server.
+    """
+
+    def __init__(self, xpath: str, wait_for: str = None):
+        super().__init__(None)
+        self.xpath = xpath
+        self.wait_for = wait_for
+
+    def instruction(self) -> dict:
+        return {"type": "CLICK", "xpath": self.xpath, "wait_for": self.wait_for}
+
+    def __repr__(self):
+        return f"ActionRequest({self.xpath!r})"
+
 class RequestData:
     """
     The context the server keeps in memory related to a specific server-assigned fetch request.
@@ -124,8 +152,9 @@ class RequestData:
         fetch_phase: The current ``Phase`` of this request.
         request: The ``Request`` the client is currently carrying out for this
             fetch, set by the server each time it hands one out (from
-            ``generate_request`` or a ``FETCHRequest`` callback). The server
-            reads a ``POSTRequest``'s form from it for the parser, and a
+            ``generate_request`` or a ``FETCHRequest`` callback). The parser
+            reads it to know how the page was reached (a ``POSTRequest``'s
+            form, an ``ActionRequest``'s click), and the server reads a
             ``FETCHRequest``'s callback when the response arrives.
         result: The ``Result`` of the last page returned for this fetch, set by
             the server before the ``update`` calls, so ``update`` /
@@ -246,9 +275,10 @@ class BaseScraper:
 
         Called when the client allows redirects. Return ``(request, RequestData)``
         to fetch next, where ``request`` is a ``GETRequest(url, parameters)`` (query
-        arguments, encoded into the url by the server), a ``POSTRequest(url, parameters)`` (a form) or a
+        arguments, encoded into the url by the server), a ``POSTRequest(url, parameters)`` (a form), a
         ``FETCHRequest(url, parameters, callback)`` (a JSON API call, no
-        navigation; ``callback`` turns the response into the next request), or
+        navigation; ``callback`` turns the response into the next request) or an
+        ``ActionRequest(xpath, wait_for)`` (a click on the current page), or
         ``(None, None)`` to stop the crawl. Required for active scrapers.
 
         Args:
